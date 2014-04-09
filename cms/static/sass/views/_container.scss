@@ -47,6 +47,17 @@ body.view-container {
 // UI: xblock rendering
 body.view-container  .content-primary {
 
+  .ui-sortable-helper {
+  }
+
+  .component-placeholder {
+    opacity: .5;
+    margin: $baseline;
+    background-color: $gray-l5;
+    border-radius: ($baseline/2);
+    border: 2px dashed $gray-l2;
+  }
+
   .wrapper-xblock {
     @extend %wrap-xblock;
 
