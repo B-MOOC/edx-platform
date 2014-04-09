@@ -917,7 +917,7 @@ class MultipleChoiceResponse(LoncapaResponse):
         # e.g. (c) keeps being the correct choice. This is due to the seed being
         # defined at the problem level, so the multiple rng's would be seeded the same.
         if not hasattr(problem, '_shared_rng'):
-            problem._shared_rng = random.Random(self.context['seed'])  # pylint: disable=W0201
+            problem._shared_rng = random.Random(self.context['seed'])  # pylint: disable=protected-access
         return problem._shared_rng
 
     def do_answer_pool(self, tree, problem):
