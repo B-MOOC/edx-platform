@@ -6,6 +6,7 @@ from bok_choy.page_object import PageObject
 from bok_choy.promise import Promise
 from . import BASE_URL
 
+from selenium.webdriver.common.action_chains import ActionChains
 
 class ContainerPage(PageObject):
     """
@@ -43,6 +44,23 @@ class ContainerPage(PageObject):
         """
         return self.q(css=XBlockWrapper.BODY_SELECTOR).map(
             lambda el: XBlockWrapper(self.browser, el.get_attribute('data-locator'))).results
+
+    def drag(self, source_index, target_index):
+        """
+        Gets the drag handle with index source_index (relative to the vertical layout of the page)
+        and drags it to the location of the drag handle with target_index.
+
+        This should drag the element with the source_index drag handle BEFORE the
+        one with the target_index drag handle.
+        """
+        draggables = self.q(css='.drag-handle')
+        source = draggables[source_index]
+        target = draggables[target_index]
+        action = ActionChains(self.browser)
+        action.click_and_hold(source).perform()  # pylint: disable=protected-access
+        action.move_to_element_with_offset(target, 0, 50).perform()  # pylint: disable=protected-access
+        action.release().perform()
+        # TODO: should wait for "Saving" to go away so we know the operation is complete?
 
 
 class XBlockWrapper(PageObject):
