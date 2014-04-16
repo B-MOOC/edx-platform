@@ -1516,3 +1516,16 @@ for app_name in OPTIONAL_APPS:
 # Stub for third_party_auth options.
 # See common/djangoapps/third_party_auth/settings.py for configuration details.
 THIRD_PARTY_AUTH = {}
+
+
+# Microsites setup
+MICROSITE_CONFIGURATION = {
+    'talan': {
+        'domain_prefix': 'universite',
+        'university': 'Talan',
+        'course_about_show_social_links': False,
+        'show_partners': False,
+        'show_homepage_promo_video': False,
+    }
+}
+MICROSITE_ROOT_DIR = '../themes/stanford/microsites'
