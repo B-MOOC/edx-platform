@@ -9,7 +9,7 @@ def deprecated(deprecated, deprecated_by,  *args)
         # Need to install paver dependencies for the commands to work!
         sh("pip install -r requirements/edx/paver.txt")
 
-        args.with_defaults(:system => "lms", :env => "dev")
+        args.with_defaults(:system => "lms", :env => "devstack")
 
         if deprecated_by.nil?
             puts("Task #{deprecated} has been deprecated.".red)
