@@ -32,22 +32,13 @@ from django.core.urlresolvers import reverse
   </div>
 % endif
 
-<div class="cta cta-nextsteps">
-  <h3>${_("Next Steps")}</h3>
-  % if stanford_theme_enabled():
-    <p>${_("You will receive an activation email.  You must click on the activation link to complete the process.  Don't see the email?  Check your spam folder and mark emails from class.stanford.edu as 'not spam', since you'll want to be able to receive email from your courses.")}</p>
-  % else:
-    <p>${_("As part of joining {platform_name}, you will receive an activation email.  You must click on the activation link to complete the process.  Don't see the email?  Check your spam folder and mark {platform_name} emails as 'not spam'.  At {platform_name}, we communicate mostly through email.").format(platform_name=platform_name)}</p>
-  % endif
-</div>
-
 % if settings.MKTG_URL_LINK_MAP.get('FAQ'):
   <div class="cta cta-help">
     <h3>${_("Need Help?")}</h3>
-    <p>${_("Need help in registering with {platform_name}?").format(platform_name=platform_name)}
-      <a href="${marketing_link('FAQ')}">
-          ${_("View our FAQs for answers to commonly asked questions.")}
-      </a>
-      ${_("Once registered, most questions can be answered in the course specific discussion forums or through the FAQs.")}</p>
-  </div>
+    <ul>
+    <li><a href="${marketing_link('FAQ')}">Accéder au FAQ </a> </li>
+    <li><a href="${marketing_link('ABOUT')}#contact">Contactez nous</li>
+    </ul>
+    
+      </div>
 % endif

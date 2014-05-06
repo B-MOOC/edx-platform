@@ -15,6 +15,7 @@
   cert_name_long = course.cert_name_long
   if cert_name_long == "":
     cert_name_long = settings.CERT_NAME_LONG
+  billing_email = settings.PAYMENT_SUPPORT_EMAIL
 %>
 
 <%namespace name='static' file='../static_content.html'/>
@@ -47,13 +48,13 @@
       <hgroup>
         <p class="date-block">
         % if course.has_ended():
-        ${_("Course Completed - {end_date}").format(end_date=course.end_date_text)}
+        la formation est terminé depuis le ${_(" {end_date}").format(end_date=course.end_date_text)}
         % elif course.has_started():
-        ${_("Course Started - {start_date}").format(start_date=course.start_date_text)}
+        la formation a commencée le  ${_(" {start_date}").format(start_date=course.start_date_text)}        
         % elif course.start_date_is_still_default: # Course start date TBD
-        ${_("Course has not yet started")}
+        ${_("La formation n'a pas encore commencée")}
         % else:   # hasn't started yet
-        ${_("Course Starts - {start_date}").format(start_date=course.start_date_text)}
+        la formation commence le  ${_(" {start_date}").format(start_date=course.start_date_text)}
         % endif
         </p>
         <h2 class="university">${get_course_about_section(course, 'university')}</h2>
@@ -66,7 +67,7 @@
         </h3>
       </hgroup>
 
-      % if course.has_ended() and cert_status and not enrollment.mode == 'audit':
+      % if course.may_certify() and cert_status and not enrollment.mode == 'audit':
       <%include file='_dashboard_certificate_information.html' args='cert_status=cert_status,course=course, enrollment=enrollment'/>
       % endif
 
@@ -106,7 +107,7 @@
         % if course.has_ended():
           <a href="${course_target}" class="enter-course archived">${_('View Archived Course')}</a>
         % else:
-          <a href="${course_target}" class="enter-course">${_('View Course')}</a>
+          <a href="${course_target}" class="enter-course">Voir la formation</a>
         % endif
       % endif
 
@@ -118,7 +119,7 @@
       % elif show_refund_option:
         ## Translators: The course's name will be added to the end of this sentence.
         <a href="#unenroll-modal" class="unenroll" rel="leanModal" data-course-id="${course.id}" data-course-number="${course.number}" onclick="document.getElementById('track-info').innerHTML='${_("Are you sure you want to unregister from the verified {cert_name_long} track of").format(cert_name_long=cert_name_long)}';
-        document.getElementById('refund-info').innerHTML=gettext('You will be refunded the amount you paid.')">
+          document.getElementById('refund-info').innerHTML='${_("In order to request a refund for the amount you paid, you will need to send an email to {billing_email}.  Be sure to include your email and the course name.").format(billing_email=billing_email)}'">
           ${_('Unregister')}
         </a>
       % else:
