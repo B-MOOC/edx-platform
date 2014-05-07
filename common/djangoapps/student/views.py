@@ -43,7 +43,7 @@ from student.models import (
     Registration, UserProfile, PendingNameChange,
     PendingEmailChange, CourseEnrollment, unique_id_for_user,
     CourseEnrollmentAllowed, UserStanding, LoginFailures,
-    create_comments_service_user, PasswordHistory
+    create_comments_service_user
 )
 from student.forms import PasswordResetFormNoActive
 from student.firebase_token_generator import create_token
