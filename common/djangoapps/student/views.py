@@ -16,10 +16,10 @@ from django.contrib.auth import logout, authenticate, login
 from django.contrib.auth.models import User, AnonymousUser
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import password_reset_confirm
-
+from django.contrib import messages
 from django.core.cache import cache
 from django.core.context_processors import csrf
-from django.core.mail import send_mail
+from django.core.mail import send_mail, BadHeaderError
 from django.core.urlresolvers import reverse
 from django.core.validators import validate_email, validate_slug, ValidationError
 from django.db import IntegrityError, transaction
@@ -31,6 +31,7 @@ from django.utils.http import cookie_date, base36_to_int
 from django.utils.translation import ugettext as _, get_language
 from django.views.decorators.http import require_POST, require_GET
 
+from django.template.response import TemplateResponse, RequestContext, Context
 
 
 from ratelimitbackend.exceptions import RateLimitException
@@ -158,7 +159,7 @@ def contactform(request):
     from_email = request.POST.get('email', '')
     if subject and message and from_email:
         try:
-	        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
+	        send_mail(subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
         except BadHeaderError:
             return HttpResponse('Invalid header found.')
         return render_to_response("static_templates/theme-merci.html")
