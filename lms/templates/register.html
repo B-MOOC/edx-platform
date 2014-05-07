@@ -109,6 +109,14 @@
         <h3 class="message-title">${_("The following errors occurred while processing your registration:")} </h3>
         <ul class="message-copy"> </ul>
       </div>
+      
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
 
      
       <div class="group group-form group-form-requiredinformation hero">
@@ -261,31 +269,16 @@
           <li class="field-group">
 
 			
-			
-			
-            % if has_extauth_info is UNDEFINED or ask_for_tos :
+			% if has_extauth_info is UNDEFINED or ask_for_tos :
             <div class="field required checkbox" id="field-tos">
               <input id="tos-yes" type="checkbox" name="terms_of_service" value="true" required aria-required="true" />
-              <label for="tos-yes">${_('I agree to the {link_start}Terms of Service{link_end}').format(
+              <label for="tos-yes">J'accepte les ${_('{link_start}CGU du service{link_end}').format(
                 link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=marketing_link('TOS')),
                 link_end='</a>')}</label>
             </div>
             % endif
 
             % if settings.REGISTRATION_EXTRA_FIELDS['honor_code'] != 'hidden':
-            <div class="field ${settings.REGISTRATION_EXTRA_FIELDS['honor_code']} checkbox" id="field-honorcode">
-              <input id="honorcode-yes" type="checkbox" name="honor_code" value="true" />
-              <%
-                ## TODO: provide a better way to override these links
-                if self.stanford_theme_enabled():
-                  honor_code_path = marketing_link('TOS') + "#honor"
-                else:
-                  honor_code_path = marketing_link('HONOR')
-              %>
-              <label for="honorcode-yes">${_('I agree to the {link_start}Honor Code{link_end}').format(
-                link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=honor_code_path),
-                link_end='</a>')}</label>
-            </div>
             
             <div class="field ${settings.REGISTRATION_EXTRA_FIELDS['honor_code']} checkbox" id="field-privacy" style='width:100%;'>
               <input id="privacy-yes" type="checkbox" name="honor_privacy" value="true" />
@@ -300,7 +293,24 @@
                 link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=honor_code_path),
                 link_end='</a>')}</label>
             </div>
+            
+            <div class="field ${settings.REGISTRATION_EXTRA_FIELDS['honor_code']} checkbox" id="field-honorcode">
+              <input id="honorcode-yes" type="checkbox" name="honor_code" value="true" />
+              <%
+                ## TODO: provide a better way to override these links
+                if self.stanford_theme_enabled():
+                  honor_code_path = marketing_link('TOS') + "#honor"
+                else:
+                  honor_code_path = marketing_link('HONOR')
+              %>
+              <label for="honorcode-yes">J'accepte le ${_('{link_start}code d\'honneur {link_end}').format(
+                link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=honor_code_path),
+                link_end='</a>')}</label>
+            </div>
+            
+            
             % endif
+
           </li>
         </ol>
       </div>

@@ -23,7 +23,7 @@ from django.core.mail import send_mail
 from django.core.urlresolvers import reverse
 from django.core.validators import validate_email, validate_slug, ValidationError
 from django.db import IntegrityError, transaction
-from django.http import (HttpResponse, HttpResponseBadRequest, HttpResponseForbidden,
+from django.http import (HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect,
                          Http404)
 from django.shortcuts import redirect
 from django_future.csrf import ensure_csrf_cookie
@@ -148,6 +148,22 @@ def _get_date_for_press(publish_date):
         date = datetime.datetime.strptime(date, "%B, %Y").replace(tzinfo=UTC)
     return date
 
+def contactform(request):
+    """
+    Send email - contact form
+
+    """
+    subject = request.POST.get('name', '')
+    message = request.POST.get('message', '')
+    from_email = request.POST.get('email', '')
+    if subject and message and from_email:
+        try:
+	        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
+        except BadHeaderError:
+            return HttpResponse('Invalid header found.')
+        return render_to_response("static_templates/theme-merci.html")
+    else:
+        return HttpResponseRedirect('/about')
 
 def embargo(_request):
     """
