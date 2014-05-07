@@ -23,7 +23,7 @@ from django.core.mail import send_mail, BadHeaderError
 from django.core.urlresolvers import reverse
 from django.core.validators import validate_email, validate_slug, ValidationError
 from django.db import IntegrityError, transaction
-from django.http import (HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect,
+from django.http import (HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect, 
                          Http404)
 from django.shortcuts import redirect
 from django_future.csrf import ensure_csrf_cookie
@@ -32,7 +32,6 @@ from django.utils.translation import ugettext as _, get_language
 from django.views.decorators.http import require_POST, require_GET
 
 from django.template.response import TemplateResponse, RequestContext, Context
-
 
 from ratelimitbackend.exceptions import RateLimitException
 
@@ -154,17 +153,7 @@ def contactform(request):
     Send email - contact form
 
     """
-    subject = request.POST.get('name', '')
-    message = request.POST.get('message', '')
-    from_email = request.POST.get('email', '')
-    if subject and message and from_email:
-        try:
-	        send_mail(subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
-        except BadHeaderError:
-            return HttpResponse('Invalid header found.')
-        return render_to_response("static_templates/merci.html")
-    else:
-        return HttpResponseRedirect('/about')
+    return HttpResponseRedirect('/about')
 
 def embargo(_request):
     """
