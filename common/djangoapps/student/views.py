@@ -148,12 +148,6 @@ def _get_date_for_press(publish_date):
         date = datetime.datetime.strptime(date, "%B, %Y").replace(tzinfo=UTC)
     return date
 
-def contactform(request):
-    """
-    Send email - contact form
-
-    """
-    return render_to_response('static_templates/embargo.html')
 
 def embargo(_request):
     """
