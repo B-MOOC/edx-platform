@@ -162,7 +162,7 @@ def contactform(request):
 	        send_mail(subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
         except BadHeaderError:
             return HttpResponse('Invalid header found.')
-        return render_to_response("static_templates/theme-merci.html")
+        return render_to_response("static_templates/merci.html")
     else:
         return HttpResponseRedirect('/about')
 
