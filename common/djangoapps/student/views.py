@@ -36,14 +36,14 @@ from django.template.response import TemplateResponse, RequestContext, Context
 from ratelimitbackend.exceptions import RateLimitException
 
 from edxmako.shortcuts import render_to_response, render_to_string
-
+from mako.exceptions import TopLevelLookupException
 
 from course_modes.models import CourseMode
 from student.models import (
     Registration, UserProfile, PendingNameChange,
     PendingEmailChange, CourseEnrollment, unique_id_for_user,
     CourseEnrollmentAllowed, UserStanding, LoginFailures,
-    create_comments_service_user
+    create_comments_service_user, PasswordHistory
 )
 from student.forms import PasswordResetFormNoActive
 from student.firebase_token_generator import create_token
@@ -153,7 +153,7 @@ def contactform(request):
     Send email - contact form
 
     """
-    return HttpResponseRedirect('/about')
+    return render_to_response('static_templates/embargo.html')
 
 def embargo(_request):
     """
