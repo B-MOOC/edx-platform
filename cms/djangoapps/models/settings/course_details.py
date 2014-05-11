@@ -27,6 +27,7 @@ class CourseDetails(object):
         self.overview = ""  # html to render as the overview
         self.intro_video = None  # a video pointer
         self.effort = None  # int hours/week
+        self.listemail = None  # int hours/week
         self.course_image_name = ""
         self.course_image_asset_path = ""  # URL of the course image
 
@@ -67,6 +68,12 @@ class CourseDetails(object):
         temploc = temploc.replace(name='effort')
         try:
             course.effort = get_modulestore(temploc).get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+            
+        temploc = temploc.replace(name='listemail')
+        try:
+            course.listemail = get_modulestore(temploc).get_item(temploc).data
         except ItemNotFoundError:
             pass
 
@@ -157,7 +164,7 @@ class CourseDetails(object):
 
         # NOTE: below auto writes to the db w/o verifying that any of the fields actually changed
         # to make faster, could compare against db or could have client send over a list of which fields changed.
-        for about_type in ['syllabus', 'overview', 'effort', 'short_description']:
+        for about_type in ['syllabus', 'overview', 'effort', 'listemail', 'short_description']:
             cls.update_about_item(course_old_location, about_type, jsondict[about_type], descriptor, user)
 
         recomposed_video_tag = CourseDetails.recompose_video_tag(jsondict['intro_video'])

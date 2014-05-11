@@ -47,11 +47,11 @@
       <hgroup>
         <p class="date-block">
         % if course.has_ended():
-        la formation est terminé depuis le ${_(" {end_date}").format(end_date=course.end_date_text)}
+        la formation est terminée depuis le ${_(" {end_date}").format(end_date=course.end_date_text)}
         % elif course.has_started():
-        la formation a commencée le  ${_(" {start_date}").format(start_date=course.start_date_text)}        
+        la formation a commencé le  ${_(" {start_date}").format(start_date=course.start_date_text)}        
         % elif course.start_date_is_still_default: # Course start date TBD
-        ${_("La formation n'a pas encore commencée")}
+        ${_("La formation n'a pas encore commencé")}
         % else:   # hasn't started yet
         la formation commence le  ${_(" {start_date}").format(start_date=course.start_date_text)}
         % endif

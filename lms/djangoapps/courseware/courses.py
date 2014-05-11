@@ -163,7 +163,7 @@ def get_course_about_section(course, section_key):
                        'course_staff_short', 'course_staff_extended',
                        'requirements', 'syllabus', 'textbook', 'faq', 'more_info',
                        'number', 'instructors', 'overview',
-                       'effort', 'end_date', 'prerequisites', 'ocw_links']:
+                       'effort', 'listemail', 'end_date', 'prerequisites', 'ocw_links']:
 
         try:
 
