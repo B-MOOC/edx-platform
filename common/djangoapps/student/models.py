@@ -14,6 +14,7 @@ import crum
 from datetime import datetime, timedelta
 import hashlib
 import json
+import string
 import logging
 from pytz import UTC
 import uuid
@@ -469,6 +470,29 @@ class CourseEnrollment(models.Model):
         if course.max_student_enrollments_allowed is not None:
             is_course_full = cls.num_enrolled_in(course.location.course_id) >= course.max_student_enrollments_allowed
         return is_course_full
+
+    @classmethod
+    def is_course_listrequired(cls, course,listemail,useremail):
+        """
+        Returns a boolean value regarding whether a course has already reached it's max enrollment
+        capacity
+        """
+        is_course_listrequired = False
+        if listemail:
+            listemail = string.split(listemail, ",")
+            for email in listemail:
+            
+                if (useremail == email):
+                    is_course_listrequired = True                    
+                # Accept *@tld.com    
+                email = string.split(email, "@")
+                if (email[0] == "*"):
+                    splitusermail = string.split(useremail, "@")
+                    if (email[1] == splitusermail[1]):
+                        is_course_listrequired = True                           
+        else:
+            is_course_listrequired = True
+        return is_course_listrequired
 
     def update_enrollment(self, mode=None, is_active=None):
         """

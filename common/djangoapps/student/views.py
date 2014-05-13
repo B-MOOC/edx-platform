@@ -59,7 +59,7 @@ from xmodule.modulestore import XML_MODULESTORE_TYPE, Location
 
 from collections import namedtuple
 
-from courseware.courses import get_courses, sort_by_announcement
+from courseware.courses import get_courses, sort_by_announcement, get_course_about_section
 from courseware.access import has_access
 
 from django_comment_common.models import Role
@@ -574,6 +574,8 @@ def try_change_enrollment(request):
                 )
             )
             if enrollment_response.content != '':
+                if (enrollment_response.status_code == 400):
+                    return ""
                 return enrollment_response.content
         except Exception, e:
             log.exception("Exception automatically enrolling after login: {0}".format(str(e)))
@@ -625,6 +627,12 @@ def change_enrollment(request):
 
         if is_course_full:
             return HttpResponseBadRequest(_("Course is full"))
+            
+        # Check list email autorise a s'inscrire
+        is_course_listrequired = CourseEnrollment.is_course_listrequired(course,get_course_about_section(course,"listemail"),user.email)
+
+        if not is_course_listrequired:
+            return HttpResponseBadRequest(_("Vous n'avez pas l'autorisation de vous inscrire."))
 
         # If this course is available in multiple modes, redirect them to a page
         # where they can choose which mode they want.
