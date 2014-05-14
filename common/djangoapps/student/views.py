@@ -635,7 +635,7 @@ def change_enrollment(request):
         is_course_listrequired = CourseEnrollment.is_course_listrequired(course,get_course_about_section(course,"listemail"),user.email)
 
         if not is_course_listrequired:
-            return HttpResponseBadRequest(_("Vous n'avez pas l'autorisation de vous inscrire."))
+            return HttpResponseBadRequest(_("Bonjour, vos identifiants ne vous permettent pas de participer, il s'agit d'une formation priv&eacute;e. Veuillez vous inscrire &agrave; une autre session publique. Tr&egrave;s cordialement, l'&eacute;quipe &eacute;ditoriale."))
 
         # If this course is available in multiple modes, redirect them to a page
         # where they can choose which mode they want.
