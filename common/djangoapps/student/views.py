@@ -621,6 +621,9 @@ def change_enrollment(request):
 
         if not has_access(user, course, 'enroll'):
             return HttpResponseBadRequest(_("Enrollment is closed"))
+            
+        if not user.is_active:
+		     return HttpResponseBadRequest(_("Activer votre compte avant de vous inscrire."))
 
         # see if we have already filled up all allowed enrollments
         is_course_full = CourseEnrollment.is_course_full(course)
