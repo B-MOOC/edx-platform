@@ -90,7 +90,11 @@
 <section class="introduction">
   <header>
     <h1 class="title">
-      <span class="title-super">Bienvenue au sein de la communauté de l’Université TALAN !</span>
+     % if course_id and enrollment_action:
+ 	  <span class="title-super">Inscrivez vous pour participer à la formation ! </span> 	 
+	 % else:
+	  <span class="title-super">Bienvenue au sein de la communauté de l’Université TALAN !</span>
+     % endif
     </h1>
   </header>
 </section>
