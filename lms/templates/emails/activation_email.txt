@@ -1,15 +1,14 @@
 <%! from django.utils.translation import ugettext as _ %>
 <table width="100%" border="0" cellspacing="0" cellpadding="0" align="center" bgcolor="#CCCCCC">
   <tr>
-    <td><br/><br/><table width="600" border="0" cellspacing="0" cellpadding="0" align="center" bgcolor="#FFFFFF">
+    <td><br/><table width="600" border="0" cellspacing="0" cellpadding="0" align="center" bgcolor="#FFFFFF">
       <tr>
-        <td>&nbsp;</td></tr> <tr>
         <td align="center">
         <img src="https://d2185fk62ntas9.cloudfront.net/logo-universite-talan.jpg" alt="Université Talan" align="center"/>
 
 <p>Merci pour votre inscription sur université Talan. Pour activer <br/>
 votre compte, s'il vous plaît rendez-vous sur le lien suivant :</p>
-<br/><br/>
+
 
 % if is_secure:
   https://${ site }/activate/${ key }
@@ -19,16 +18,13 @@ votre compte, s'il vous plaît rendez-vous sur le lien suivant :</p>
 
 
 <hr/>
-<br/><br/><br/>
+<br/>
 
 <i>Si vous n'avez pas demandé d'inscription à l'université Talan, vous n'avez pas besoin de faire quoi que ce soit.
 Vous ne receverez plus d'email de notre part. S'il vous plaît ne répondez pas à cet e-mail.
 si vous avez besoin d'aide, consultez la section d'aide de notre site.</i>
-        </td></tr><tr>
-        <td>&nbsp;
-        </td>
-      </tr>
-    </table><br/><br/></td>
+        </td></tr>
+        </table><br/></td>
     
   </tr>
 </table>

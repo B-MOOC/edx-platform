@@ -90,11 +90,16 @@
 <section class="introduction">
   <header>
     <h1 class="title">
-     % if course_id and enrollment_action:
- 	  <span class="title-super">Inscrivez vous pour participer à la formation ! </span> 	 
-	 % else:
-	  <span class="title-super">Bienvenue au sein de la communauté de l’Université TALAN !</span>
-     % endif
+    
+    % if course_id and enrollment_action:
+ 	 <span class="title-super" style="line-height:32px;">Pour participer à la formation,<br/> Veuillez
+ 	 vous connecter à l'université TALAN ! </span> 	 
+	% else:
+	 <span class="title-super">Bienvenue au sein de la communauté de l’Université TALAN !</span>
+    % endif
+    
+    
+     
     </h1>
   </header>
 </section>
@@ -114,9 +119,25 @@
         <ul class="message-copy"> </ul>
       </div>
       
+      
+      % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
         <p class="instructions">
         Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
       </p>
+
+    % endif
+    
+          
+      
       <hr/>
       <p>
       <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
@@ -318,12 +339,6 @@
           </li>
         </ol>
       </div>
-
-% if course_id and enrollment_action:
-      <input type="hidden" name="enrollment_action" value="${enrollment_action | h}" />
-      <input type="hidden" name="course_id" value="${course_id | h}" />
-% endif
-
       <div class="form-actions">
         <button name="submit" type="submit" id="submit" class="action action-primary action-update">
         Activer mon inscription
