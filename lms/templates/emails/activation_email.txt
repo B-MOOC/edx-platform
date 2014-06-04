@@ -1,3 +1,7 @@
+<html>
+<head>
+</head>
+<body bgcolor="#CCCCCC">
 <%! from django.utils.translation import ugettext as _ %>
 <table width="100%" border="0" cellspacing="0" cellpadding="0" align="center" bgcolor="#CCCCCC">
   <tr>
@@ -26,3 +30,5 @@ si vous avez besoin d'aide, consultez la section d'aide de notre site.</i>
     
   </tr>
 </table>
+</body>
+</html>

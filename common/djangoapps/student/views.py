@@ -157,7 +157,7 @@ def contactform(request):
     message = request.POST.get('message', '')
     from_email = request.POST.get('email', '')
     if subject and message and from_email:
-        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
+        send_mail("talan universite message de : "+subject, message, from_email, ['contact@b-mooc.com'])
         return render_to_response("static_templates/merci.html")
     else:
         return HttpResponseRedirect('/about')
@@ -1236,7 +1236,7 @@ def create_account(request, post_override=None):
                 dest_addr = settings.FEATURES['REROUTE_ACTIVATION_EMAIL']
                 message = ("Activation for %s (%s): %s\n" % (user, user.email, profile.name) +
                            '-' * 80 + '\n\n' + message)
-                send_mail(subject, message, from_address, [dest_addr], fail_silently=False)
+                send_mail(subject, message, from_address, [dest_addr], fail_silently=False,html_message=message)
             else:
                 user.email_user(subject, message, from_address)
         except Exception:  # pylint: disable=broad-except
