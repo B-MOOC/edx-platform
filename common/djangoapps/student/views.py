@@ -1245,11 +1245,15 @@ def create_account(request, post_override=None):
                 subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
                 msg = EmailMultiAlternatives(subject, text_content, from_email, [to])
                 msg.attach_alternative(html_content, "text/html")
-                msg.send()
-                
-                 
+                msg.send()                                 
             else:
-                user.email_user(subject, message, from_address)
+                # ----
+                # HTML activation message
+                # -----               
+                subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
+                msg = EmailMultiAlternatives(subject, text_content, from_email, [to])
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
         except Exception:  # pylint: disable=broad-except
             log.warning('Unable to send activation email to user', exc_info=True)
             js['value'] = _('Could not send activation e-mail.')
