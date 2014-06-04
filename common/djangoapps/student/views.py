@@ -19,7 +19,7 @@ from django.contrib.auth.views import password_reset_confirm
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.context_processors import csrf
-from django.core.mail import send_mail, BadHeaderError
+from django.core.mail import send_mail, BadHeaderError, EmailMultiAlternatives
 from django.core.urlresolvers import reverse
 from django.core.validators import validate_email, validate_slug, ValidationError
 from django.db import IntegrityError, transaction
@@ -29,6 +29,7 @@ from django.shortcuts import redirect
 from django_future.csrf import ensure_csrf_cookie
 from django.utils.http import cookie_date, base36_to_int
 from django.utils.translation import ugettext as _, get_language
+from django.utils.html import strip_tags
 from django.views.decorators.http import require_POST, require_GET
 
 from django.template.response import TemplateResponse, RequestContext, Context
@@ -59,7 +60,7 @@ from xmodule.modulestore import XML_MODULESTORE_TYPE, Location
 
 from collections import namedtuple
 
-from courseware.courses import get_courses, sort_by_announcement, get_course_about_section
+from courseware.courses import get_courses, sort_by_announcement,get_course_about_section
 from courseware.access import has_access
 
 from django_comment_common.models import Role
@@ -157,7 +158,7 @@ def contactform(request):
     message = request.POST.get('message', '')
     from_email = request.POST.get('email', '')
     if subject and message and from_email:
-        send_mail("talan universite message de : "+subject, message, from_email, ['contact@b-mooc.com'])
+        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
         return render_to_response("static_templates/merci.html")
     else:
         return HttpResponseRedirect('/about')
@@ -621,7 +622,7 @@ def change_enrollment(request):
 
         if not has_access(user, course, 'enroll'):
             return HttpResponseBadRequest(_("Enrollment is closed"))
-            
+        
         if not user.is_active:
 		     return HttpResponseBadRequest(_("Activer votre compte avant de vous inscrire."))
 
@@ -636,7 +637,7 @@ def change_enrollment(request):
 
         if not is_course_listrequired:
             return HttpResponseBadRequest(_("Bonjour, vos identifiants ne vous permettent pas de participer, il s'agit d'une formation priv&eacute;e. Veuillez vous inscrire &agrave; une autre session publique. Tr&egrave;s cordialement, l'&eacute;quipe &eacute;ditoriale."))
-
+		
         # If this course is available in multiple modes, redirect them to a page
         # where they can choose which mode they want.
         available_modes = CourseMode.modes_for_course(course_id)
@@ -1224,6 +1225,8 @@ def create_account(request, post_override=None):
     # Email subject *must not* contain newlines
     subject = ''.join(subject.splitlines())
     message = render_to_string('emails/activation_email.txt', context)
+    html_content = message
+    text_content = strip_tags(html_content)
 
     # don't send email if we are doing load testing or random user generation for some reason
     if not (settings.FEATURES.get('AUTOMATIC_AUTH_FOR_TESTING')):
@@ -1236,7 +1239,15 @@ def create_account(request, post_override=None):
                 dest_addr = settings.FEATURES['REROUTE_ACTIVATION_EMAIL']
                 message = ("Activation for %s (%s): %s\n" % (user, user.email, profile.name) +
                            '-' * 80 + '\n\n' + message)
-                send_mail(subject, message, from_address, [dest_addr], fail_silently=False,html_message=message)
+                # ----
+                # HTML activation message
+                # -----               
+                subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
+                msg = EmailMultiAlternatives(subject, text_content, from_email, [to])
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
+                
+                 
             else:
                 user.email_user(subject, message, from_address)
         except Exception:  # pylint: disable=broad-except
