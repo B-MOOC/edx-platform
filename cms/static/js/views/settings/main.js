@@ -61,6 +61,8 @@ var DetailsView = ValidatingView.extend({
         else this.$el.find('.remove-course-introduction-video').hide();
 
         this.$el.find('#' + this.fieldToSelectorMap['effort']).val(this.model.get('effort'));
+        this.$el.find('#' + this.fieldToSelectorMap['listemail']).val(this.model.get('listemail'));
+        //this.$el.find('#email-list').val(this.model.get('listemail'));
 
         var imageURL = this.model.get('course_image_asset_path');
         this.$el.find('#course-image-url').val(imageURL);
@@ -76,6 +78,7 @@ var DetailsView = ValidatingView.extend({
         'overview' : 'course-overview',
         'short_description' : 'course-short-description',
         'intro_video' : 'course-introduction-video',
+        'listemail' : 'course-email-list',
         'effort' : "course-effort",
         'course_image_asset_path': 'course-image-url'
     },
@@ -152,6 +155,9 @@ var DetailsView = ValidatingView.extend({
         case 'course-effort':
             this.setField(event);
             break;
+        case 'course-email-list':
+        	this.setField(event);
+       		break;
         case 'course-short-description':
             this.setField(event);
             break;

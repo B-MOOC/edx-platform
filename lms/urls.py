@@ -69,6 +69,7 @@ urlpatterns = ('',  # nopep8
     url(r'^i18n/', include('django.conf.urls.i18n')),
 
     url(r'^embargo$', 'student.views.embargo', name="embargo"),
+    url(r'^messageenvoye$', 'student.views.contactform'),
 
     # Feedback Form endpoint
     url(r'^submit_feedback$', 'util.views.submit_feedback'),

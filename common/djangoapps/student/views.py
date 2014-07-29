@@ -16,7 +16,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import password_reset_confirm
 from django.contrib import messages
 from django.core.context_processors import csrf
-from django.core.mail import send_mail
+from django.core.mail import send_mail, BadHeaderError, EmailMultiAlternatives
 from django.core.urlresolvers import reverse
 from django.core.validators import validate_email, validate_slug, ValidationError
 from django.db import IntegrityError, transaction
@@ -29,6 +29,7 @@ from django.utils.http import cookie_date, base36_to_int
 from django.utils.translation import ugettext as _, get_language
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST, require_GET
+from django.utils.html import strip_tags
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -60,7 +61,7 @@ from xmodule.modulestore import ModuleStoreEnum
 
 from collections import namedtuple
 
-from courseware.courses import get_courses, sort_by_announcement
+from courseware.courses import get_courses, sort_by_announcement,get_course_about_section
 from courseware.access import has_access
 
 from django_comment_common.models import Role
@@ -146,6 +147,19 @@ def embargo(_request):
         pass
     return render_to_response("static_templates/embargo.html")
 
+def contactform(request):
+    """
+    Send email - contact form
+
+    """
+    subject = request.POST.get('name', '')
+    message = request.POST.get('message', '')
+    from_email = request.POST.get('email', '')
+    if subject and message and from_email:
+        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
+        return render_to_response("static_templates/merci.html")
+    else:
+        return HttpResponseRedirect('/about')
 
 def press(request):
     return render_to_response('static_templates/press.html')
@@ -566,7 +580,9 @@ def try_change_enrollment(request):
             # Hack: since change_enrollment delivers its redirect_url in the content
             # of its response, we check here that only the 200 codes with content
             # will return redirect_urls.
-            if enrollment_response.status_code == 200 and enrollment_response.content != '':
+            if enrollment_response.content != '':
+                if (enrollment_response.status_code == 400):
+                    return ""
                 return enrollment_response.content
         except Exception, e:
             log.exception("Exception automatically enrolling after login: {0}".format(str(e)))
@@ -613,12 +629,21 @@ def change_enrollment(request):
 
         if not has_access(user, 'enroll', course):
             return HttpResponseBadRequest(_("Enrollment is closed"))
+            
+        if not user.is_active:
+		     return HttpResponseBadRequest(_("Activer votre compte avant de vous inscrire."))
 
         # see if we have already filled up all allowed enrollments
         is_course_full = CourseEnrollment.is_course_full(course)
 
         if is_course_full:
             return HttpResponseBadRequest(_("Course is full"))
+            
+        # Check list email autorise a s'inscrire
+        is_course_listrequired = CourseEnrollment.is_course_listrequired(course,get_course_about_section(course,"listemail"),user.email)
+
+        if not is_course_listrequired:
+            return HttpResponseBadRequest(_("Bonjour, vos identifiants ne vous permettent pas de participer, il s'agit d'une formation priv&eacute;e. Veuillez vous inscrire &agrave; une autre session publique. Tr&egrave;s cordialement, l'&eacute;quipe &eacute;ditoriale."))
 
         # check to see if user is currently enrolled in that course
         if CourseEnrollment.is_enrolled(user, course_id):
@@ -1270,6 +1295,8 @@ def create_account(request, post_override=None):  # pylint: disable-msg=too-many
     # Email subject *must not* contain newlines
     subject = ''.join(subject.splitlines())
     message = render_to_string('emails/activation_email.txt', context)
+    html_content = message
+    text_content = strip_tags(html_content)
 
     # don't send email if we are doing load testing or random user generation for some reason
     if not (settings.FEATURES.get('AUTOMATIC_AUTH_FOR_TESTING')):
@@ -1282,9 +1309,22 @@ def create_account(request, post_override=None):  # pylint: disable-msg=too-many
                 dest_addr = settings.FEATURES['REROUTE_ACTIVATION_EMAIL']
                 message = ("Activation for %s (%s): %s\n" % (user, user.email, profile.name) +
                            '-' * 80 + '\n\n' + message)
-                send_mail(subject, message, from_address, [dest_addr], fail_silently=False)
+                # ----
+                # HTML activation message
+                # -----               
+                subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
+                msg = EmailMultiAlternatives(subject, text_content, from_email, [to])
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
             else:
-                user.email_user(subject, message, from_address)
+                # user.email_user(subject, message, from_address)
+                # ----
+                # HTML activation message
+                # -----               
+                # subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
+                msg = EmailMultiAlternatives(subject, text_content, from_address, [user.email])
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
         except Exception:  # pylint: disable=broad-except
             log.error('Unable to send activation email to user from "{from_address}"'.format(from_address=from_address), exc_info=True)
             js['value'] = _('Could not send activation e-mail.')
