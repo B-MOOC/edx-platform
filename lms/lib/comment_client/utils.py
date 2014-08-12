@@ -1,6 +1,5 @@
 from contextlib import contextmanager
 from dogapi import dog_stats_api
-import json
 import logging
 import requests
 from django.conf import settings
@@ -105,7 +104,15 @@ def perform_request(method, url, data_or_params=None, raw=False,
         if raw:
             return response.text
         else:
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                raise CommentClientError(
+                    u"Comments service returned invalid JSON for request {request_id}; first 100 characters: '{content}'".format(
+                        request_id=request_id,
+                        content=response.text[:100]
+                    )
+                )
             if paged_results:
                 dog_stats_api.histogram(
                     'comment_client.request.paged.result_count',

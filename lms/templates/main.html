@@ -73,7 +73,11 @@
     header_extra_file = None
     header_file = microsite.get_template_path('navigation.html')
     google_analytics_file = microsite.get_template_path('google_analytics.html')
-    footer_file = microsite.get_template_path('footer.html')
+
+    if getattr(settings, 'SITE_NAME', '').endswith('edx.org'):
+      footer_file = microsite.get_template_path('edx_footer.html')
+    else:
+      footer_file = microsite.get_template_path('footer.html')
 
     style_overrides_file = microsite.get_value('css_overrides_file')
 %>
@@ -107,18 +111,14 @@
 
   <%include file="mathjax_accessible.html" />
 
-% if not suppress_toplevel_navigation:
   <%include file="${header_file}" />
-%endif
 
   <div class="content-wrapper" id="content">
     ${self.body()}
     <%block name="bodyextra"/>
   </div>
 
-% if not suppress_toplevel_navigation:
   <%include file="${footer_file}" />
-% endif
 
   <script>window.baseUrl = "${settings.STATIC_URL}";</script>
   <%static:js group='application'/>
@@ -129,10 +129,8 @@
 </html>
 
 <%def name="login_query()">${
-  "?course_id={0}&enrollment_action={1}".format(
+  u"?course_id={0}&enrollment_action={1}".format(
     html.escape(course_id),
     html.escape(enrollment_action)
   ) if course_id and enrollment_action else ""
 }</%def>
-
-

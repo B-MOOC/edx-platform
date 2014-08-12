@@ -329,6 +329,7 @@ edx_d3CreateStackedBarGraph = function(parameters, svg, divTooltip) {
       .attr("height", function(d) {
         return graph.scale.y(d.y0) - graph.scale.y(d.y1);
       })
+      .attr("id", function(d) { return d.module_url })
       .style("fill", function(d) { return graph.scale.stackColor(d.color); })
       .style("stroke", "white")
       .style("stroke-width", "0.5px");
@@ -348,8 +349,24 @@ edx_d3CreateStackedBarGraph = function(parameters, svg, divTooltip) {
         var top = pos[1]-10;
         var width = $('#'+graph.divTooltip.attr("id")).width();
 
+        // Construct the tooltip
+        if (d.tooltip['type'] == 'subsection') {
+	   stud_str = ngettext('%(num_students)s student opened Subsection', '%(num_students)s students opened Subsection', d.tooltip['num_students']);
+	   stud_str = interpolate(stud_str, {'num_students': d.tooltip['num_students']}, true);
+          tooltip_str = stud_str +  ' '  + d.tooltip['subsection_num'] + ': ' + d.tooltip['subsection_name'];
+        }else if (d.tooltip['type'] == 'problem') {
+	   stud_str = ngettext('%(num_students)s student', '%(num_students)s students', d.tooltip['count_grade']);
+	   stud_str = interpolate(stud_str, {'num_students': d.tooltip['count_grade']}, true);
+	   q_str = ngettext('%(num_questions)s question', '%(num_questions)s questions', d.tooltip['max_grade']);
+	   q_str = interpolate(q_str, {'num_questions': d.tooltip['max_grade']}, true);
+
+          tooltip_str = d.tooltip['label'] + ' ' + d.tooltip['problem_name'] + ' - ' \
+                      + stud_str + ' (' + d.tooltip['student_count_percent'] + '%) (' \
+                      + d.tooltip['percent'] + '%: ' + d.tooltip['grade'] +'/' \
+	              + q_str + ')';
+        }
         graph.divTooltip.style("visibility", "visible")
-          .text(d.tooltip);
+          .text(tooltip_str);
 
         if ((left+width+30) > $("#"+graph.divTooltip.node().parentNode.id).width())
           left -= (width+30);

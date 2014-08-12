@@ -1,15 +1,21 @@
 """
 Computes the data to display on the Instructor Dashboard
 """
+from util.json_request import JsonResponse
+import json
 
 from courseware import models
 from django.db.models import Count
 from django.utils.translation import ugettext as _
 
-from xmodule.course_module import CourseDescriptor
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.inheritance import own_metadata
+from analytics.csvs import create_csv_response
 
+from opaque_keys.edx.locations import Location
+
+# Used to limit the length of list displayed to the screen.
+MAX_SCREEN_LIST_LENGTH = 250
 
 def get_problem_grade_distribution(course_id):
     """
@@ -17,9 +23,12 @@ def get_problem_grade_distribution(course_id):
 
     `course_id` the course ID for the course interested in
 
-    Output is a dict, where the key is the problem 'module_id' and the value is a dict with:
+    Output is 2 dicts:
+      'prob-grade_distrib' where the key is the problem 'module_id' and the value is a dict with:
         'max_grade' - max grade for this problem
         'grade_distrib' - array of tuples (`grade`,`count`).
+      'total_student_count' where the key is problem 'module_id' and the value is number of students
+        attempting the problem
     """
 
     # Aggregate query on studentmodule table for grade data for all problems in course
@@ -30,10 +39,11 @@ def get_problem_grade_distribution(course_id):
     ).values('module_state_key', 'grade', 'max_grade').annotate(count_grade=Count('grade'))
 
     prob_grade_distrib = {}
+    total_student_count = {}
 
     # Loop through resultset building data for each problem
     for row in db_query:
-        curr_problem = row['module_state_key']
+        curr_problem = course_id.make_usage_key_from_deprecated_string(row['module_state_key'])
 
         # Build set of grade distributions for each problem that has student responses
         if curr_problem in prob_grade_distrib:
@@ -49,7 +59,10 @@ def get_problem_grade_distribution(course_id):
                 'grade_distrib': [(row['grade'], row['count_grade'])]
             }
 
-    return prob_grade_distrib
+        # Build set of total students attempting each problem
+        total_student_count[curr_problem] = total_student_count.get(curr_problem, 0) + row['count_grade']
+
+    return prob_grade_distrib, total_student_count
 
 
 def get_sequential_open_distrib(course_id):
@@ -70,7 +83,8 @@ def get_sequential_open_distrib(course_id):
     # Build set of "opened" data for each subsection that has "opened" data
     sequential_open_distrib = {}
     for row in db_query:
-        sequential_open_distrib[row['module_state_key']] = row['count_sequential']
+        row_loc = course_id.make_usage_key_from_deprecated_string(row['module_state_key'])
+        sequential_open_distrib[row_loc] = row['count_sequential']
 
     return sequential_open_distrib
 
@@ -81,7 +95,7 @@ def get_problem_set_grade_distrib(course_id, problem_set):
 
     `course_id` the course ID for the course interested in
 
-    `problem_set` an array of strings representing problem module_id's.
+    `problem_set` an array of UsageKeys representing problem module_id's.
 
     Requests from the database the a count of each grade for each problem in the `problem_set`.
 
@@ -106,13 +120,14 @@ def get_problem_set_grade_distrib(course_id, problem_set):
 
     # Loop through resultset building data for each problem
     for row in db_query:
-        if row['module_state_key'] not in prob_grade_distrib:
-            prob_grade_distrib[row['module_state_key']] = {
+        row_loc = course_id.make_usage_key_from_deprecated_string(row['module_state_key'])
+        if row_loc not in prob_grade_distrib:
+            prob_grade_distrib[row_loc] = {
                 'max_grade': 0,
                 'grade_distrib': [],
             }
 
-        curr_grade_distrib = prob_grade_distrib[row['module_state_key']]
+        curr_grade_distrib = prob_grade_distrib[row_loc]
         curr_grade_distrib['grade_distrib'].append((row['grade'], row['count_grade']))
 
         if curr_grade_distrib['max_grade'] < row['max_grade']:
@@ -132,11 +147,11 @@ def get_d3_problem_grade_distrib(course_id):
       'data' - data for the d3_stacked_bar_graph function of the grade distribution for that problem
     """
 
-    prob_grade_distrib = get_problem_grade_distribution(course_id)
+    prob_grade_distrib, total_student_count = get_problem_grade_distribution(course_id)
     d3_data = []
 
     # Retrieve course object down to problems
-    course = modulestore().get_instance(course_id, CourseDescriptor.id_to_location(course_id), depth=4)
+    course = modulestore().get_course(course_id, depth=4)
 
     # Iterate through sections, subsections, units, problems
     for section in course.get_children():
@@ -161,10 +176,10 @@ def get_d3_problem_grade_distrib(course_id):
                         label = "P{0}.{1}.{2}".format(c_subsection, c_unit, c_problem)
 
                         # Only problems in prob_grade_distrib have had a student submission.
-                        if child.location.url() in prob_grade_distrib:
+                        if child.location in prob_grade_distrib:
 
                             # Get max_grade, grade_distribution for this problem
-                            problem_info = prob_grade_distrib[child.location.url()]
+                            problem_info = prob_grade_distrib[child.location]
 
                             # Get problem_name for tooltip
                             problem_name = own_metadata(child).get('display_name', '')
@@ -174,25 +189,31 @@ def get_d3_problem_grade_distrib(course_id):
                             for (grade, count_grade) in problem_info['grade_distrib']:
                                 percent = 0.0
                                 if max_grade > 0:
-                                    percent = (grade * 100.0) / max_grade
+                                    percent = round((grade * 100.0) / max_grade, 1)
 
-                                # Construct tooltip for problem in grade distibution view
-                                tooltip = _("{label} {problem_name} - {count_grade} {students} ({percent:.0f}%: {grade:.0f}/{max_grade:.0f} {questions})").format(
-                                    label=label,
-                                    problem_name=problem_name,
-                                    count_grade=count_grade,
-                                    students=_("students"),
-                                    percent=percent,
-                                    grade=grade,
-                                    max_grade=max_grade,
-                                    questions=_("questions"),
-                                )
+                                # Compute percent of students with this grade
+                                student_count_percent = 0
+                                if total_student_count.get(child.location, 0) > 0:
+                                    student_count_percent = count_grade * 100 / total_student_count[child.location]
+
+                                # Tooltip parameters for problem in grade distribution view
+                                tooltip = {
+                                    'type': 'problem',
+                                    'label': label,
+                                    'problem_name': problem_name,
+                                    'count_grade': count_grade,
+                                    'percent': percent,
+                                    'grade': grade,
+                                    'max_grade': max_grade,
+                                    'student_count_percent': student_count_percent,
+                                }
 
                                 # Construct data to be sent to d3
                                 stack_data.append({
                                     'color': percent,
                                     'value': count_grade,
                                     'tooltip': tooltip,
+                                    'module_url': child.location.to_deprecated_string(),
                                 })
 
                         problem = {
@@ -222,7 +243,7 @@ def get_d3_sequential_open_distrib(course_id):
     d3_data = []
 
     # Retrieve course object down to subsection
-    course = modulestore().get_instance(course_id, CourseDescriptor.id_to_location(course_id), depth=2)
+    course = modulestore().get_course(course_id, depth=2)
 
     # Iterate through sections, subsections
     for section in course.get_children():
@@ -237,20 +258,24 @@ def get_d3_sequential_open_distrib(course_id):
             subsection_name = own_metadata(subsection).get('display_name', '')
 
             num_students = 0
-            if subsection.location.url() in sequential_open_distrib:
-                num_students = sequential_open_distrib[subsection.location.url()]
+            if subsection.location in sequential_open_distrib:
+                num_students = sequential_open_distrib[subsection.location]
 
             stack_data = []
-            tooltip = _("{num_students} student(s) opened Subsection {subsection_num}: {subsection_name}").format(
-                num_students=num_students,
-                subsection_num=c_subsection,
-                subsection_name=subsection_name,
-            )
+
+            # Tooltip parameters for subsection in open_distribution view
+            tooltip = {
+                'type': 'subsection',
+                'num_students': num_students,
+                'subsection_num': c_subsection,
+                'subsection_name': subsection_name
+            }
 
             stack_data.append({
                 'color': 0,
                 'value': num_students,
                 'tooltip': tooltip,
+                'module_url': subsection.location.to_deprecated_string(),
             })
             subsection = {
                 'xValue': "SS {0}".format(c_subsection),
@@ -288,7 +313,7 @@ def get_d3_section_grade_distrib(course_id, section):
     """
 
     # Retrieve course object down to problems
-    course = modulestore().get_instance(course_id, CourseDescriptor.id_to_location(course_id), depth=4)
+    course = modulestore().get_course(course_id, depth=4)
 
     problem_set = []
     problem_info = {}
@@ -302,9 +327,9 @@ def get_d3_section_grade_distrib(course_id, section):
             for child in unit.get_children():
                 if (child.location.category == 'problem'):
                     c_problem += 1
-                    problem_set.append(child.location.url())
-                    problem_info[child.location.url()] = {
-                        'id': child.location.url(),
+                    problem_set.append(child.location)
+                    problem_info[child.location] = {
+                        'id': child.location.to_deprecated_string(),
                         'x_value': "P{0}.{1}.{2}".format(c_subsection, c_unit, c_problem),
                         'display_name': own_metadata(child).get('display_name', ''),
                     }
@@ -323,19 +348,18 @@ def get_d3_section_grade_distrib(course_id, section):
             for (grade, count_grade) in grade_distrib[problem]['grade_distrib']:
                 percent = 0.0
                 if max_grade > 0:
-                    percent = (grade * 100.0) / max_grade
+                    percent = round((grade * 100.0) / max_grade, 1)
 
                 # Construct tooltip for problem in grade distibution view
-                tooltip = _("{problem_info_x} {problem_info_n} - {count_grade} {students} ({percent:.0f}%: {grade:.0f}/{max_grade:.0f} {questions})").format(
-                    problem_info_x=problem_info[problem]['x_value'],
-                    count_grade=count_grade,
-                    students=_("students"),
-                    percent=percent,
-                    problem_info_n=problem_info[problem]['display_name'],
-                    grade=grade,
-                    max_grade=max_grade,
-                    questions=_("questions"),
-                )
+                tooltip = {
+                    'type': 'problem',
+                    'problem_info_x': problem_info[problem]['x_value'],
+                    'count_grade': count_grade,
+                    'percent': percent,
+                    'problem_info_n': problem_info[problem]['display_name'],
+                    'grade': grade,
+                    'max_grade': max_grade,
+                }
 
                 stack_data.append({
                     'color': percent,
@@ -360,7 +384,7 @@ def get_section_display_name(course_id):
     The ith string in the array is the display name of the ith section in the course.
     """
 
-    course = modulestore().get_instance(course_id, CourseDescriptor.id_to_location(course_id), depth=4)
+    course = modulestore().get_course(course_id, depth=4)
 
     section_display_name = [""] * len(course.get_children())
     i = 0
@@ -380,7 +404,7 @@ def get_array_section_has_problem(course_id):
     The ith value in the array is true if the ith section in the course contains problems and false otherwise.
     """
 
-    course = modulestore().get_instance(course_id, CourseDescriptor.id_to_location(course_id), depth=4)
+    course = modulestore().get_course(course_id, depth=4)
 
     b_section_has_problem = [False] * len(course.get_children())
     i = 0
@@ -399,3 +423,176 @@ def get_array_section_has_problem(course_id):
         i += 1
 
     return b_section_has_problem
+
+
+def get_students_opened_subsection(request, csv=False):
+    """
+    Get a list of students that opened a particular subsection.
+    If 'csv' is False, returns a dict of student's name: username.
+
+    If 'csv' is True, returns a header array, and an array of arrays in the format:
+    student names, usernames for CSV download.
+    """
+    module_state_key = Location.from_deprecated_string(request.GET.get('module_id'))
+    csv = request.GET.get('csv')
+
+    # Query for "opened a subsection" students
+    students = models.StudentModule.objects.select_related('student').filter(
+        module_state_key__exact=module_state_key,
+        module_type__exact='sequential',
+    ).values('student__username', 'student__profile__name').order_by('student__profile__name')
+
+    results = []
+    if not csv:
+        # Restrict screen list length
+        # Adding 1 so can tell if list is larger than MAX_SCREEN_LIST_LENGTH
+        # without doing another select.
+        for student in students[0:MAX_SCREEN_LIST_LENGTH + 1]:
+            results.append({
+                'name': student['student__profile__name'],
+                'username': student['student__username'],
+            })
+
+        max_exceeded = False
+        if len(results) > MAX_SCREEN_LIST_LENGTH:
+            # Remove the last item so list length is exactly MAX_SCREEN_LIST_LENGTH
+            del results[-1]
+            max_exceeded = True
+        response_payload = {
+            'results': results,
+            'max_exceeded': max_exceeded,
+        }
+        return JsonResponse(response_payload)
+    else:
+        tooltip = request.GET.get('tooltip')
+
+        # Subsection name is everything after 3rd space in tooltip
+        filename = sanitize_filename(' '.join(tooltip.split(' ')[3:]))
+
+        header = [_("Name").encode('utf-8'), _("Username").encode('utf-8')]
+        for student in students:
+            results.append([student['student__profile__name'], student['student__username']])
+
+        response = create_csv_response(filename, header, results)
+        return response
+
+
+def get_students_problem_grades(request, csv=False):
+    """
+    Get a list of students and grades for a particular problem.
+    If 'csv' is False, returns a dict of student's name: username: grade: percent.
+
+    If 'csv' is True, returns a header array, and an array of arrays in the format:
+    student names, usernames, grades, percents for CSV download.
+    """
+    module_state_key = Location.from_deprecated_string(request.GET.get('module_id'))
+    csv = request.GET.get('csv')
+
+    # Query for "problem grades" students
+    students = models.StudentModule.objects.select_related('student').filter(
+        module_state_key=module_state_key,
+        module_type__exact='problem',
+        grade__isnull=False,
+    ).values('student__username', 'student__profile__name', 'grade', 'max_grade').order_by('student__profile__name')
+
+    results = []
+    if not csv:
+        # Restrict screen list length
+        # Adding 1 so can tell if list is larger than MAX_SCREEN_LIST_LENGTH
+        # without doing another select.
+        for student in students[0:MAX_SCREEN_LIST_LENGTH + 1]:
+            student_dict = {
+                'name': student['student__profile__name'],
+                'username': student['student__username'],
+                'grade': student['grade'],
+            }
+
+            student_dict['percent'] = 0
+            if student['max_grade'] > 0:
+                student_dict['percent'] = round(student['grade'] * 100 / student['max_grade'])
+            results.append(student_dict)
+
+        max_exceeded = False
+        if len(results) > MAX_SCREEN_LIST_LENGTH:
+            # Remove the last item so list length is exactly MAX_SCREEN_LIST_LENGTH
+            del results[-1]
+            max_exceeded = True
+
+        response_payload = {
+            'results': results,
+            'max_exceeded': max_exceeded,
+        }
+        return JsonResponse(response_payload)
+    else:
+        tooltip = request.GET.get('tooltip')
+        filename = sanitize_filename(tooltip[:tooltip.rfind(' - ')])
+
+        header = [_("Name").encode('utf-8'), _("Username").encode('utf-8'), _("Grade").encode('utf-8'), _("Percent").encode('utf-8')]
+        for student in students:
+
+            percent = 0
+            if student['max_grade'] > 0:
+                percent = round(student['grade'] * 100 / student['max_grade'])
+            results.append([student['student__profile__name'], student['student__username'], student['grade'], percent])
+
+        response = create_csv_response(filename, header, results)
+        return response
+
+
+def post_metrics_data_csv(request):
+    """
+    Generate a list of opened subsections or problems for the entire course for CSV download.
+    Returns a header array, and an array of arrays in the format:
+    section, subsection, count of students for subsections
+    or section, problem, name, count of students, percent of students, score for problems.
+    """
+
+    data = json.loads(request.POST['data'])
+    sections = json.loads(data['sections'])
+    tooltips = json.loads(data['tooltips'])
+    course_id = data['course_id']
+    data_type = data['data_type']
+
+    results = []
+    if data_type == 'subsection':
+        header = [_("Section").encode('utf-8'), _("Subsection").encode('utf-8'), _("Opened by this number of students").encode('utf-8')]
+        filename = sanitize_filename(_('subsections') + '_' + course_id)
+    elif data_type == 'problem':
+        header = [_("Section").encode('utf-8'), _("Problem").encode('utf-8'), _("Name").encode('utf-8'), _("Count of Students").encode('utf-8'), _("Percent of Students").encode('utf-8'), _("Score").encode('utf-8')]
+        filename = sanitize_filename(_('problems') + '_' + course_id)
+
+    for index, section in enumerate(sections):
+        results.append([section])
+
+        # tooltips array is array of dicts for subsections and
+        # array of array of dicts for problems.
+        if data_type == 'subsection':
+            for tooltip_dict in tooltips[index]:
+                num_students = tooltip_dict['num_students']
+                subsection = tooltip_dict['subsection_name']
+                # Append to results offsetting 1 column to the right.
+                results.append(['', subsection, num_students])
+
+        elif data_type == 'problem':
+            for tooltip in tooltips[index]:
+                for tooltip_dict in tooltip:
+                    label = tooltip_dict['label']
+                    problem_name = tooltip_dict['problem_name']
+                    count_grade = tooltip_dict['count_grade']
+                    student_count_percent = tooltip_dict['student_count_percent']
+                    percent = tooltip_dict['percent']
+                    # Append to results offsetting 1 column to the right.
+                    results.append(['', label, problem_name, count_grade, student_count_percent, percent])
+
+    response = create_csv_response(filename, header, results)
+    return response
+
+
+def sanitize_filename(filename):
+    """
+    Utility function
+    """
+    filename = filename.replace(" ", "_")
+    filename = filename.encode('utf-8')
+    filename = filename[0:25] + '.csv'
+    return filename

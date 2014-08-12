@@ -2,6 +2,7 @@
 Tests for branding page
 """
 import datetime
+from django.http import HttpResponseRedirect
 from pytz import UTC
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -9,10 +10,11 @@ from django.test.utils import override_settings
 from django.test.client import RequestFactory
 
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
-from xmodule.modulestore.django import editable_modulestore
+from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.tests.factories import CourseFactory
 from courseware.tests.tests import TEST_DATA_MONGO_MODULESTORE
 import student.views
+from branding.views import index
 
 FEATURES_WITH_STARTDATE = settings.FEATURES.copy()
 FEATURES_WITH_STARTDATE['DISABLE_START_DATES'] = False
@@ -26,12 +28,13 @@ class AnonymousIndexPageTest(ModuleStoreTestCase):
     Tests that anonymous users can access the '/' page,  Need courses with start date
     """
     def setUp(self):
-        self.store = editable_modulestore()
+        super(AnonymousIndexPageTest, self).setUp()
         self.factory = RequestFactory()
-        self.course = CourseFactory.create()
-        self.course.days_early_for_beta = 5
-        self.course.enrollment_start = datetime.datetime.now(UTC) + datetime.timedelta(days=3)
-        self.store.update_item(self.course)
+        self.course = CourseFactory.create(
+            days_early_for_beta=5,
+            enrollment_start=datetime.datetime.now(UTC)+datetime.timedelta(days=3),
+            user_id=self.user.id,
+        )
 
     @override_settings(FEATURES=FEATURES_WITH_STARTDATE)
     def test_none_user_index_access_with_startdate_fails(self):
@@ -72,3 +75,20 @@ class AnonymousIndexPageTest(ModuleStoreTestCase):
         # check to see that the override value is honored
         resp = self.client.get('/')
         self.assertEquals(resp['X-Frame-Options'], 'DENY')
+
+    def test_edge_redirect_to_login(self):
+        """
+        Test edge homepage redirect to lms login.
+        """
+
+        request = self.factory.get('/')
+        request.user = AnonymousUser()
+
+        # HTTP Host changed to edge.
+        request.META["HTTP_HOST"] = "edge.edx.org"
+        response = index(request)
+
+        # Response should be instance of HttpResponseRedirect.
+        self.assertIsInstance(response, HttpResponseRedirect)
+        # Location should be "/login".
+        self.assertEqual(response._headers.get("location")[1], "/login")

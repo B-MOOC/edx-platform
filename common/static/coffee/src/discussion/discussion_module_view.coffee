@@ -83,40 +83,40 @@ if Backbone?
 
     renderDiscussion: ($elem, response, textStatus, discussionId) =>
       $elem.focus()
-      window.user = new DiscussionUser(response.user_info)
+      user = new DiscussionUser(response.user_info)
+      window.user = user
+      DiscussionUtil.setUser(user)
       Content.loadContentInfos(response.annotated_content_info)
       DiscussionUtil.loadRoles(response.roles)
-      allow_anonymous = response.allow_anonymous
-      allow_anonymous_to_peers = response.allow_anonymous_to_peers
-      cohorts = response.cohorts
-      # $elem.html("Hide Discussion")
+
+      @course_settings = new DiscussionCourseSettings(response.course_settings)
       @discussion = new Discussion()
       @discussion.reset(response.discussion_data, {silent: false})
 
-      #use same discussion template but different thread templated
-      #determined in the coffeescript based on whether or not there's a
-      #group id
-      
-      if response.is_cohorted and response.is_moderator
-        source = "script#_inline_discussion_cohorted"
-      else
-        source = "script#_inline_discussion"
-      
-      $discussion = $(Mustache.render $(source).html(), {'threads':response.discussion_data, 'discussionId': discussionId, 'allow_anonymous_to_peers': allow_anonymous_to_peers, 'allow_anonymous': allow_anonymous, 'cohorts':cohorts})
+      $discussion = $(Mustache.render $("script#_inline_discussion").html(), {'threads':response.discussion_data, 'discussionId': discussionId})
       if @$('section.discussion').length
         @$('section.discussion').replaceWith($discussion)
       else
         @$el.append($discussion)
+
       @newPostForm = $('.new-post-article')
       @threadviews = @discussion.map (thread) ->
         new DiscussionThreadInlineView el: @$("article#thread_#{thread.id}"), model: thread
       _.each @threadviews, (dtv) -> dtv.render()
       DiscussionUtil.bulkUpdateContentInfo(window.$$annotated_content_info)
-      @newPostView = new NewPostInlineView el: @$('.new-post-article'), collection: @discussion
+      @newPostView = new NewPostView(
+        el: @newPostForm,
+        collection: @discussion,
+        course_settings: @course_settings,
+        topicId: discussionId
+      )
+      @newPostView.render()
       @discussion.on "add", @addThread
+
       @retrieved = true
       @showed = true
-      @renderPagination(2, response.num_pages)
+      @renderPagination(response.num_pages)
+
       if @isWaitingOnNewPost
         @newPostForm.show()
 
@@ -128,21 +128,10 @@ if Backbone?
       threadView.render()
       @threadviews.unshift threadView
 
-    renderPagination: (delta, numPages) =>
-      minPage = Math.max(@page - delta, 1)
-      maxPage = Math.min(@page + delta, numPages)
+    renderPagination: (numPages) =>
       pageUrl = (number) ->
         "?discussion_page=#{number}"
-      params =
-        page: @page
-        lowPages: _.range(minPage, @page).map (n) -> {number: n, url: pageUrl(n)}
-        highPages: _.range(@page+1, maxPage+1).map (n) -> {number: n, url: pageUrl(n)}
-        previous: if @page-1 >= 1 then {url: pageUrl(@page-1), number: @page-1} else false
-        next: if @page+1 <= numPages then {url: pageUrl(@page+1), number: @page+1} else false
-        leftdots: minPage > 2
-        rightdots: maxPage < numPages-1
-        first: if minPage > 1 then {url: pageUrl(1)} else false
-        last: if maxPage < numPages then {number: numPages, url: pageUrl(numPages)} else false
+      params = DiscussionUtil.getPaginationParams(@page, numPages, pageUrl)
       thing = Mustache.render @paginationTemplate(), params
       @$('section.pagination').html(thing)
 

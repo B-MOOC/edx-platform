@@ -1,4 +1,4 @@
-define([ "jquery", "js/spec/create_sinon", "URI",
+define([ "jquery", "js/spec_helpers/create_sinon", "URI",
     "js/views/paging", "js/views/paging_header", "js/views/paging_footer",
     "js/models/asset", "js/collections/asset" ],
     function ($, create_sinon, URI, PagingView, PagingHeader, PagingFooter, AssetModel, AssetCollection) {
@@ -245,7 +245,6 @@ define([ "jquery", "js/spec/create_sinon", "URI",
                         expect(pagingHeader.$('.next-page-link')).toHaveClass('is-disabled');
                     });
 
-
                     it('should be disabled on an empty page', function () {
                         var requests = create_sinon.requests(this);
                         pagingView.setPage(0);
@@ -298,6 +297,31 @@ define([ "jquery", "js/spec/create_sinon", "URI",
                         pagingView.setPage(0);
                         create_sinon.respondWithJson(requests, mockEmptyPage);
                         expect(pagingHeader.$('.previous-page-link')).toHaveClass('is-disabled');
+                    });
+                });
+
+                describe("Page metadata section", function() {
+                    it('shows the correct metadata for the current page', function () {
+                        var requests = create_sinon.requests(this),
+                            message;
+                        pagingView.setPage(0);
+                        respondWithMockAssets(requests);
+                        message = pagingHeader.$('.meta').html().trim();
+                        expect(message).toBe('<p>Showing <span class="count-current-shown">1-3</span>' +
+                            ' out of <span class="count-total">4 total</span>, ' +
+                            'sorted by <span class="sort-order">Date</span> descending</p>');
+                    });
+
+                    it('shows the correct metadata when sorted ascending', function () {
+                        var requests = create_sinon.requests(this),
+                            message;
+                        pagingView.setPage(0);
+                        pagingView.toggleSortOrder('name-col');
+                        respondWithMockAssets(requests);
+                        message = pagingHeader.$('.meta').html().trim();
+                        expect(message).toBe('<p>Showing <span class="count-current-shown">1-3</span>' +
+                            ' out of <span class="count-total">4 total</span>, ' +
+                            'sorted by <span class="sort-order">Name</span> ascending</p>');
                     });
                 });
 

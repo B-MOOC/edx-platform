@@ -14,8 +14,8 @@
 
 define(
 'video/01_initialize.js',
-['video/03_video_player.js', 'video/00_video_storage.js'],
-function (VideoPlayer, VideoStorage) {
+['video/03_video_player.js', 'video/00_video_storage.js', 'video/00_i18n.js'],
+function (VideoPlayer, VideoStorage, i18n) {
     /**
      * @function
      *
@@ -39,7 +39,7 @@ function (VideoPlayer, VideoStorage) {
                     return false;
                 }
 
-                _initializeModules(state)
+                _initializeModules(state, i18n)
                     .done(function () {
                         // On iPad ready state occurs just after start playing.
                         // We hide controls before video starts playing.
@@ -63,14 +63,18 @@ function (VideoPlayer, VideoStorage) {
         fetchMetadata: fetchMetadata,
         getCurrentLanguage: getCurrentLanguage,
         getDuration: getDuration,
+        getPlayerMode: getPlayerMode,
         getVideoMetadata: getVideoMetadata,
         initialize: initialize,
+        isHtml5Mode: isHtml5Mode,
         isFlashMode: isFlashMode,
+        isYoutubeType: isYoutubeType,
         parseSpeed: parseSpeed,
-        parseVideoSources: parseVideoSources,
         parseYoutubeStreams: parseYoutubeStreams,
         saveState: saveState,
+        setPlayerMode: setPlayerMode,
         setSpeed: setSpeed,
+        speedToString: speedToString,
         trigger: trigger,
         youtubeId: youtubeId
     },
@@ -250,18 +254,6 @@ function (VideoPlayer, VideoStorage) {
         }
     }
 
-    // function _setPlayerMode(state)
-    //     By default we will be forcing HTML5 player mode. Only in the case
-    //     when, after initializtion, we will get one available playback rate,
-    //     we will change to Flash player mode. There is a need to store this
-    //     setting in cookies because otherwise we will have to change from
-    //     HTML5 to Flash on every page load in a browser that doesn't fully
-    //     support HTML5. When we have this setting in cookies, we can select
-    //     the proper mode from the start (not having to change mode later on).
-    function _setPlayerMode(state) {
-        state.currentPlayerMode = 'html5';
-    }
-
     // function _parseYouTubeIDs(state)
     //     The function parse YouTube stream ID's.
     //     @return
@@ -287,31 +279,17 @@ function (VideoPlayer, VideoStorage) {
     // The function prepare HTML5 video, parse HTML5
     // video sources etc.
     function _prepareHTML5Video(state) {
-        state.parseVideoSources(
-            {
-                mp4: state.config.mp4Source,
-                webm: state.config.webmSource,
-                ogg: state.config.oggSource
-            }
-        );
-
         state.speeds = ['0.75', '1.0', '1.25', '1.50'];
-
-        // We must have at least one non-YouTube video source available.
-        // Otherwise, return a negative.
-        if (
-            state.html5Sources.webm === null &&
-            state.html5Sources.mp4 === null &&
-            state.html5Sources.ogg === null
-        ) {
-
-            // TODO: use 1 class to work with.
-            state.el.find('.video-player div').addClass('hidden');
-            state.el.find('.video-player h3').removeClass('hidden');
-
-            console.log(
-                '[Video info]: Non-youtube video sources aren\'t available.'
-            );
+        // If none of the supported video formats can be played and there is no
+        // short-hand video links, than hide the spinner and show error message.
+        if (!state.config.sources.length) {
+            _hideWaitPlaceholder(state);
+            state.el
+                .find('.video-player div')
+                    .addClass('hidden')
+                .end()
+                .find('.video-player h3')
+                    .removeClass('hidden');
 
             return false;
         }
@@ -339,8 +317,7 @@ function (VideoPlayer, VideoStorage) {
 
     function _setConfigurations(state) {
         _configureCaptions(state);
-        _setPlayerMode(state);
-
+        state.setPlayerMode(state.config.mode);
         // Possible value are: 'visible', 'hiding', and 'invisible'.
         state.controlState = 'visible';
         state.controlHideTimeout = null;
@@ -348,11 +325,11 @@ function (VideoPlayer, VideoStorage) {
         state.captionHideTimeout = null;
     }
 
-    function _initializeModules(state) {
+    function _initializeModules(state, i18n) {
         var dfd = $.Deferred(),
             modulesList = $.map(state.modules, function(module) {
                 if ($.isFunction(module)) {
-                    return module(state);
+                    return module(state, i18n);
                 } else if ($.isPlainObject(module)) {
                     return module;
                 }
@@ -501,7 +478,6 @@ function (VideoPlayer, VideoStorage) {
             __dfd__: __dfd__,
             el: el,
             container: container,
-            currentVolume: 100,
             id: id,
             isFullScreen: false,
             isTouch: isTouch,
@@ -520,7 +496,10 @@ function (VideoPlayer, VideoStorage) {
             element: element,
             fadeOutTimeout:     1400,
             captionsFreezeTime: 10000,
-            availableQualities: ['hd720', 'hd1080', 'highres']
+            mode: $.cookie('edX_video_player_mode'),
+            // Available HD qualities will only be accessible once the video has
+            // been played once, via player.getAvailableQualityLevels.
+            availableHDQualities: []
         });
 
         if (this.config.endTime < this.config.startTime) {
@@ -528,9 +507,9 @@ function (VideoPlayer, VideoStorage) {
         }
 
         this.lang = this.config.transcriptLanguage;
-        this.speed = Number(
+        this.speed = this.speedToString(
             this.config.speed || this.config.generalSpeed
-        ).toFixed(2).replace(/\.00$/, '.0');
+        );
 
         if (!(_parseYouTubeIDs(this))) {
 
@@ -639,45 +618,12 @@ function (VideoPlayer, VideoStorage) {
             var speed;
 
             video = video.split(/:/);
-            speed = parseFloat(video[0]).toFixed(2).replace(/\.00$/, '.0');
+            speed = _this.speedToString(video[0]);
 
             _this.videos[speed] = video[1];
         });
 
         return _.isString(this.videos['1.0']);
-    }
-
-    // function parseVideoSources(, mp4Source, webmSource, oggSource)
-    //
-    //     Take the HTML5 sources (URLs of videos), and make them available
-    //     explictly for each type of video format (mp4, webm, ogg).
-    function parseVideoSources(sources) {
-        var _this = this,
-            v = document.createElement('video'),
-            sourceCodecs = {
-                mp4: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-                webm: 'video/webm; codecs="vp8, vorbis"',
-                ogg: 'video/ogg; codecs="theora"'
-            };
-
-        this.html5Sources = {
-            mp4: null,
-            webm: null,
-            ogg: null
-        };
-
-        $.each(sources, function (name, source) {
-            if (source && source.length) {
-                if (
-                    Boolean(
-                        v.canPlayType &&
-                        v.canPlayType(sourceCodecs[name]).replace(/no/, '')
-                    )
-                ) {
-                    _this.html5Sources[name] = source;
-                }
-            }
-        });
     }
 
     // function fetchMetadata()
@@ -759,7 +705,10 @@ function (VideoPlayer, VideoStorage) {
         }
         successHandler = ($.isFunction(callback)) ? callback : null;
         xhr = $.ajax({
-            url: document.location.protocol + '//'  + this.config.ytTestUrl + url + '?v=2&alt=jsonc',
+            url: [
+                document.location.protocol, '//', this.config.ytTestUrl, url,
+                '?v=2&alt=jsonc'
+            ].join(''),
             dataType: 'jsonp',
             timeout: this.config.ytTestTimeout,
             success: successHandler
@@ -811,8 +760,54 @@ function (VideoPlayer, VideoStorage) {
         }
     }
 
+    /**
+     * Sets player mode.
+     *
+     * @param {string} mode Mode to set for the video player if it is supported.
+     *                      Otherwise, `html5` is used by default.
+     */
+    function setPlayerMode(mode) {
+        var supportedModes = ['html5', 'flash'];
+
+        mode = _.contains(supportedModes, mode) ? mode : 'html5';
+        this.currentPlayerMode = mode;
+    }
+
+    /**
+     * Returns current player mode.
+     *
+     * @return {string} Returns string that describes player mode
+     */
+    function getPlayerMode() {
+        return this.currentPlayerMode;
+    }
+
+    /**
+     * Checks if current player mode is Flash.
+     *
+     * @return {boolean} Returns `true` if current mode is `flash`, otherwise
+     *                   it returns `false`
+     */
     function isFlashMode() {
-        return this.currentPlayerMode === 'flash';
+        return this.getPlayerMode() === 'flash';
+    }
+
+    /**
+     * Checks if current player mode is Html5.
+     *
+     * @return {boolean} Returns `true` if current mode is `html5`, otherwise
+     *                   it returns `false`
+     */
+    function isHtml5Mode() {
+        return this.getPlayerMode() === 'html5';
+    }
+
+    function isYoutubeType() {
+        return this.videoType === 'youtube';
+    }
+
+    function speedToString(speed) {
+        return parseFloat(speed).toFixed(2).replace(/\.00$/, '.0');
     }
 
     function getCurrentLanguage() {

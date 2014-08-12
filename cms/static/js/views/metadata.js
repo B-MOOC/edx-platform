@@ -1,30 +1,31 @@
 define(
     [
         "js/views/baseview", "underscore", "js/models/metadata", "js/views/abstract_editor",
+        "js/models/uploads", "js/views/uploads",
         "js/views/video/transcripts/metadata_videolist",
         "js/views/video/translations_editor"
     ],
-function(BaseView, _, MetadataModel, AbstractEditor, VideoList, VideoTranslations) {
+function(BaseView, _, MetadataModel, AbstractEditor, FileUpload, UploadDialog, VideoList, VideoTranslations) {
     var Metadata = {};
 
     Metadata.Editor = BaseView.extend({
 
         // Model is CMS.Models.MetadataCollection,
         initialize : function() {
-            var tpl = $("#metadata-editor-tpl").text();
-            if(!tpl) {
-                console.error("Couldn't load metadata editor template");
-            }
-            this.template = _.template(tpl);
+            var self = this,
+                counter = 0,
+                locator = self.$el.closest('[data-locator]').data('locator'),
+                courseKey = self.$el.closest('[data-course-key]').data('course-key');
 
+            this.template = this.loadTemplate('metadata-editor');
             this.$el.html(this.template({numEntries: this.collection.length}));
-            var counter = 0;
 
-            var self = this;
             this.collection.each(
                 function (model) {
                     var data = {
                             el: self.$el.find('.metadata_entry')[counter++],
+                            courseKey: courseKey,
+                            locator: locator,
                             model: model
                         },
                         conversions = {
@@ -89,7 +90,7 @@ function(BaseView, _, MetadataModel, AbstractEditor, VideoList, VideoTranslation
 
         events : {
             "change input" : "updateModel",
-            "keypress .setting-input" : "showClearButton"  ,
+            "keypress .setting-input" : "showClearButton",
             "click .setting-clear" : "clear"
         },
 
@@ -488,6 +489,63 @@ function(BaseView, _, MetadataModel, AbstractEditor, VideoList, VideoTranslation
             if (_.isNull(this.model.getValue())) {
                 this.$el.find('.create-setting').removeClass('is-disabled');
             }
+        }
+    });
+
+
+    /**
+     * Provides convenient way to upload/download files in component edit.
+     * The editor uploads files directly to course assets and stores link
+     * to uploaded file.
+     */
+    Metadata.FileUploader = AbstractEditor.extend({
+
+        events : {
+            "click .upload-setting" : "upload",
+            "click .setting-clear" : "clear"
+        },
+
+        templateName: "metadata-file-uploader-entry",
+        templateButtonsName: "metadata-file-uploader-item",
+
+        initialize: function () {
+            this.buttonTemplate = this.loadTemplate(this.templateButtonsName);
+            AbstractEditor.prototype.initialize.apply(this);
+        },
+
+        getValueFromEditor: function () {
+            return this.$('#' + this.uniqueId).val();
+        },
+
+        setValueInEditor: function (value) {
+            var html = this.buttonTemplate({
+                model: this.model,
+                uniqueId: this.uniqueId
+            });
+
+            this.$('#' + this.uniqueId).val(value);
+            this.$('.wrapper-uploader-actions').html(html);
+        },
+
+        upload: function (event) {
+            var self = this,
+                target = $(event.currentTarget),
+                url = '/assets/' + this.options.courseKey + '/',
+                model = new FileUpload({
+                    title: gettext('Upload File'),
+                }),
+                view = new UploadDialog({
+                    model: model,
+                    url: url,
+                    parentElement: target.closest('.xblock-editor'),
+                    onSuccess: function (response) {
+                        if (response['asset'] && response['asset']['url']) {
+                            self.model.setValue(response['asset']['url']);
+                        }
+                    }
+                }).show();
+
+            event.preventDefault();
         }
     });
 

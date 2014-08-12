@@ -15,8 +15,17 @@ Contents:
     :maxdepth: 2
 
     change_log
+    preface.rst
     overview.rst
     extending_platform/index
+    xblocks.rst
+    pavelib.rst
+    public_sandboxes.rst
+    analytics.rst
+    process/index
+    testing/index
+    code-considerations
+    deploy-new-service
 
 APIs
 -----
@@ -36,7 +45,6 @@ Internationalization
 
     i18n.rst
     i18n_translators_guide.rst
-    pavelib.rst
 
 Indices and tables
 ==================

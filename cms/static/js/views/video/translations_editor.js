@@ -47,6 +47,13 @@ function($, _, AbstractEditor, FileUpload, UploadDialog) {
                     var dropdown = $(element).clone();
 
                     _.each(values, function(value, key) {
+                        // Note: IE may raise an exception if key is an empty string,
+                        // while other browsers return null as excepted. So coerce it
+                        // into null for browser consistency.
+                        if (key === "") {
+                            key = null;
+                        }
+
                         var option = dropdown[0].options.namedItem(key);
 
                         if (option) {
@@ -145,12 +152,13 @@ function($, _, AbstractEditor, FileUpload, UploadDialog) {
                 target = $(event.currentTarget),
                 lang = target.data('lang'),
                 model = new FileUpload({
-                    title: gettext('Upload translation.'),
+                    title: gettext('Upload translation'),
                     fileFormats: ['srt']
                 }),
                 view = new VideoUploadDialog({
                     model: model,
                     url: self.model.get('urlRoot') + '/' + lang,
+                    parentElement: target.closest('.xblock-editor'),
                     onSuccess: function (response) {
                         if (!response['filename']) { return; }
 
@@ -161,7 +169,7 @@ function($, _, AbstractEditor, FileUpload, UploadDialog) {
                     }
                 });
 
-            $('.wrapper-view').after(view.show().el);
+            view.show();
         },
 
         enableAdd: function() {

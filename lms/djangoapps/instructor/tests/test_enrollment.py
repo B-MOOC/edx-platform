@@ -3,25 +3,35 @@ Unit tests for instructor.enrollment methods.
 """
 
 import json
+import mock
 from abc import ABCMeta
 from courseware.models import StudentModule
+from django.conf import settings
 from django.test import TestCase
+from django.test.utils import override_settings
 from student.tests.factories import UserFactory
+from xmodule.modulestore.tests.factories import CourseFactory
+from courseware.tests.modulestore_config import TEST_DATA_MIXED_MODULESTORE
 
 from student.models import CourseEnrollment, CourseEnrollmentAllowed
 from instructor.enrollment import (
     EmailEnrollmentState,
     enroll_email,
+    get_email_params,
     reset_student_attempts,
     send_beta_role_email,
     unenroll_email
 )
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
+
+from submissions import api as sub_api
+from student.models import anonymous_id_for_user
 
 
 class TestSettableEnrollmentState(TestCase):
     """ Test the basis class for enrollment tests. """
     def setUp(self):
-        self.course_id = 'robot:/a/fake/c::rse/id'
+        self.course_key = SlashSeparatedCourseKey('Robot', 'fAKE', 'C-%-se-%-ID')
 
     def test_mes_create(self):
         """
@@ -34,8 +44,8 @@ class TestSettableEnrollmentState(TestCase):
             auto_enroll=False
         )
         # enrollment objects
-        eobjs = mes.create_user(self.course_id)
-        ees = EmailEnrollmentState(self.course_id, eobjs.email)
+        eobjs = mes.create_user(self.course_key)
+        ees = EmailEnrollmentState(self.course_key, eobjs.email)
         self.assertEqual(mes, ees)
 
 
@@ -51,7 +61,7 @@ class TestEnrollmentChangeBase(TestCase):
     __metaclass__ = ABCMeta
 
     def setUp(self):
-        self.course_id = 'robot:/a/fake/c::rse/id'
+        self.course_key = SlashSeparatedCourseKey('Robot', 'fAKE', 'C-%-se-%-ID')
 
     def _run_state_change_test(self, before_ideal, after_ideal, action):
         """
@@ -65,8 +75,8 @@ class TestEnrollmentChangeBase(TestCase):
         """
         # initialize & check before
         print "checking initialization..."
-        eobjs = before_ideal.create_user(self.course_id)
-        before = EmailEnrollmentState(self.course_id, eobjs.email)
+        eobjs = before_ideal.create_user(self.course_key)
+        before = EmailEnrollmentState(self.course_key, eobjs.email)
         self.assertEqual(before, before_ideal)
 
         # do action
@@ -75,7 +85,7 @@ class TestEnrollmentChangeBase(TestCase):
 
         # check after
         print "checking effects..."
-        after = EmailEnrollmentState(self.course_id, eobjs.email)
+        after = EmailEnrollmentState(self.course_key, eobjs.email)
         self.assertEqual(after, after_ideal)
 
 
@@ -96,7 +106,7 @@ class TestInstructorEnrollDB(TestEnrollmentChangeBase):
             auto_enroll=False
         )
 
-        action = lambda email: enroll_email(self.course_id, email)
+        action = lambda email: enroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -115,7 +125,7 @@ class TestInstructorEnrollDB(TestEnrollmentChangeBase):
             auto_enroll=False,
         )
 
-        action = lambda email: enroll_email(self.course_id, email)
+        action = lambda email: enroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -134,7 +144,7 @@ class TestInstructorEnrollDB(TestEnrollmentChangeBase):
             auto_enroll=False,
         )
 
-        action = lambda email: enroll_email(self.course_id, email)
+        action = lambda email: enroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -153,7 +163,7 @@ class TestInstructorEnrollDB(TestEnrollmentChangeBase):
             auto_enroll=False,
         )
 
-        action = lambda email: enroll_email(self.course_id, email)
+        action = lambda email: enroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -172,7 +182,7 @@ class TestInstructorEnrollDB(TestEnrollmentChangeBase):
             auto_enroll=True,
         )
 
-        action = lambda email: enroll_email(self.course_id, email, auto_enroll=True)
+        action = lambda email: enroll_email(self.course_key, email, auto_enroll=True)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -191,7 +201,7 @@ class TestInstructorEnrollDB(TestEnrollmentChangeBase):
             auto_enroll=False,
         )
 
-        action = lambda email: enroll_email(self.course_id, email, auto_enroll=False)
+        action = lambda email: enroll_email(self.course_key, email, auto_enroll=False)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -213,7 +223,7 @@ class TestInstructorUnenrollDB(TestEnrollmentChangeBase):
             auto_enroll=False
         )
 
-        action = lambda email: unenroll_email(self.course_id, email)
+        action = lambda email: unenroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -232,7 +242,7 @@ class TestInstructorUnenrollDB(TestEnrollmentChangeBase):
             auto_enroll=False
         )
 
-        action = lambda email: unenroll_email(self.course_id, email)
+        action = lambda email: unenroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -251,7 +261,7 @@ class TestInstructorUnenrollDB(TestEnrollmentChangeBase):
             auto_enroll=False
         )
 
-        action = lambda email: unenroll_email(self.course_id, email)
+        action = lambda email: unenroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
@@ -270,35 +280,68 @@ class TestInstructorUnenrollDB(TestEnrollmentChangeBase):
             auto_enroll=False
         )
 
-        action = lambda email: unenroll_email(self.course_id, email)
+        action = lambda email: unenroll_email(self.course_key, email)
 
         return self._run_state_change_test(before_ideal, after_ideal, action)
 
 
+@override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
 class TestInstructorEnrollmentStudentModule(TestCase):
     """ Test student module manipulations. """
     def setUp(self):
-        self.course_id = 'robot:/a/fake/c::rse/id'
+        self.course_key = SlashSeparatedCourseKey('fake', 'course', 'id')
 
     def test_reset_student_attempts(self):
         user = UserFactory()
-        msk = 'robot/module/state/key'
+        msk = self.course_key.make_usage_key('dummy', 'module')
         original_state = json.dumps({'attempts': 32, 'otherstuff': 'alsorobots'})
-        module = StudentModule.objects.create(student=user, course_id=self.course_id, module_state_key=msk, state=original_state)
+        StudentModule.objects.create(student=user, course_id=self.course_key, module_state_key=msk, state=original_state)
         # lambda to reload the module state from the database
-        module = lambda: StudentModule.objects.get(student=user, course_id=self.course_id, module_state_key=msk)
+        module = lambda: StudentModule.objects.get(student=user, course_id=self.course_key, module_state_key=msk)
         self.assertEqual(json.loads(module().state)['attempts'], 32)
-        reset_student_attempts(self.course_id, user, msk)
+        reset_student_attempts(self.course_key, user, msk)
         self.assertEqual(json.loads(module().state)['attempts'], 0)
 
     def test_delete_student_attempts(self):
         user = UserFactory()
-        msk = 'robot/module/state/key'
+        msk = self.course_key.make_usage_key('dummy', 'module')
         original_state = json.dumps({'attempts': 32, 'otherstuff': 'alsorobots'})
-        StudentModule.objects.create(student=user, course_id=self.course_id, module_state_key=msk, state=original_state)
-        self.assertEqual(StudentModule.objects.filter(student=user, course_id=self.course_id, module_state_key=msk).count(), 1)
-        reset_student_attempts(self.course_id, user, msk, delete_module=True)
-        self.assertEqual(StudentModule.objects.filter(student=user, course_id=self.course_id, module_state_key=msk).count(), 0)
+        StudentModule.objects.create(student=user, course_id=self.course_key, module_state_key=msk, state=original_state)
+        self.assertEqual(StudentModule.objects.filter(student=user, course_id=self.course_key, module_state_key=msk).count(), 1)
+        reset_student_attempts(self.course_key, user, msk, delete_module=True)
+        self.assertEqual(StudentModule.objects.filter(student=user, course_id=self.course_key, module_state_key=msk).count(), 0)
+
+    def test_delete_submission_scores(self):
+        user = UserFactory()
+        problem_location = self.course_key.make_usage_key('dummy', 'module')
+
+        # Create a student module for the user
+        StudentModule.objects.create(
+            student=user,
+            course_id=self.course_key,
+            module_state_key=problem_location,
+            state=json.dumps({})
+        )
+
+        # Create a submission and score for the student using the submissions API
+        student_item = {
+            'student_id': anonymous_id_for_user(user, self.course_key),
+            'course_id': self.course_key.to_deprecated_string(),
+            'item_id': problem_location.to_deprecated_string(),
+            'item_type': 'openassessment'
+        }
+        submission = sub_api.create_submission(student_item, 'test answer')
+        sub_api.set_score(submission['uuid'], 1, 2)
+
+        # Delete student state using the instructor dash
+        reset_student_attempts(
+            self.course_key, user, problem_location,
+            delete_module=True
+        )
+
+        # Verify that the student's scores have been reset in the submissions API
+        score = sub_api.get_score(student_item)
+        self.assertIs(score, None)
 
 
 class EnrollmentObjects(object):
@@ -385,3 +428,46 @@ class TestSendBetaRoleEmail(TestCase):
         error_msg = "Unexpected action received '{}' - expected 'add' or 'remove'".format(bad_action)
         with self.assertRaisesRegexp(ValueError, error_msg):
             send_beta_role_email(bad_action, self.user, self.email_params)
+
+
+@override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
+class TestGetEmailParams(TestCase):
+    """
+    Test what URLs the function get_email_params returns under different
+    production-like conditions.
+    """
+    def setUp(self):
+        self.course = CourseFactory.create()
+
+        # Explicitly construct what we expect the course URLs to be
+        site = settings.SITE_NAME
+        self.course_url = u'https://{}/courses/{}/'.format(
+            site,
+            self.course.id.to_deprecated_string()
+        )
+        self.course_about_url = self.course_url + 'about'
+        self.registration_url = u'https://{}/register'.format(
+            site,
+        )
+
+    def test_normal_params(self):
+        # For a normal site, what do we expect to get for the URLs?
+        # Also make sure `auto_enroll` is properly passed through.
+        result = get_email_params(self.course, False)
+
+        self.assertEqual(result['auto_enroll'], False)
+        self.assertEqual(result['course_about_url'], self.course_about_url)
+        self.assertEqual(result['registration_url'], self.registration_url)
+        self.assertEqual(result['course_url'], self.course_url)
+
+    def test_marketing_params(self):
+        # For a site with a marketing front end, what do we expect to get for the URLs?
+        # Also make sure `auto_enroll` is properly passed through.
+        with mock.patch.dict('django.conf.settings.FEATURES', {'ENABLE_MKTG_SITE': True}):
+            result = get_email_params(self.course, True)
+
+        self.assertEqual(result['auto_enroll'], True)
+        # We should *not* get a course about url (LMS doesn't know what the marketing site URLs are)
+        self.assertEqual(result['course_about_url'], None)
+        self.assertEqual(result['registration_url'], self.registration_url)
+        self.assertEqual(result['course_url'], self.course_url)

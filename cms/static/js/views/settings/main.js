@@ -1,5 +1,6 @@
-define(["js/views/validation", "codemirror", "underscore", "jquery", "jquery.ui", "tzAbbr", "js/models/uploads", "js/views/uploads", "jquery.timepicker", "date"],
-    function(ValidatingView, CodeMirror, _, $, ui, tzAbbr, FileUploadModel, FileUploadDialog) {
+define(["js/views/validation", "codemirror", "underscore", "jquery", "jquery.ui", "tzAbbr", "js/models/uploads",
+    "js/views/uploads", "js/utils/change_on_enter", "jquery.timepicker", "date"],
+    function(ValidatingView, CodeMirror, _, $, ui, tzAbbr, FileUploadModel, FileUploadDialog, TriggerChangeEventOnEnter) {
 
 var DetailsView = ValidatingView.extend({
     // Model class is CMS.Models.Settings.CourseDetails
@@ -60,7 +61,8 @@ var DetailsView = ValidatingView.extend({
         else this.$el.find('.remove-course-introduction-video').hide();
 
         this.$el.find('#' + this.fieldToSelectorMap['effort']).val(this.model.get('effort'));
-        this.$el.find('#email-list').val(this.model.get('listemail'));
+        this.$el.find('#' + this.fieldToSelectorMap['listemail']).val(this.model.get('listemail'));
+        //this.$el.find('#email-list').val(this.model.get('listemail'));
 
         var imageURL = this.model.get('course_image_asset_path');
         this.$el.find('#course-image-url').val(imageURL);
@@ -76,6 +78,7 @@ var DetailsView = ValidatingView.extend({
         'overview' : 'course-overview',
         'short_description' : 'course-short-description',
         'intro_video' : 'course-introduction-video',
+        'listemail' : 'course-email-list',
         'effort' : "course-effort",
         'listemail' : "email-list",
         'course_image_asset_path': 'course-image-url'
@@ -123,7 +126,7 @@ var DetailsView = ValidatingView.extend({
 
         // Using the change event causes setfield to be triggered twice, but it is necessary
         // to pick up when the date is typed directly in the field.
-        datefield.change(setfield);
+        datefield.change(setfield).keyup(TriggerChangeEventOnEnter);
         timefield.on('changeTime', setfield);
         timefield.on('input', setfield);
 
@@ -153,9 +156,9 @@ var DetailsView = ValidatingView.extend({
         case 'course-effort':
             this.setField(event);
             break;
-        case 'email-list':
+        case 'course-email-list':
         	this.setField(event);
-            break;
+       		break;
         case 'course-short-description':
             this.setField(event);
             break;
@@ -280,7 +283,7 @@ var DetailsView = ValidatingView.extend({
                 $('#course-image').attr('src', self.model.get('course_image_asset_path'));
             }
         });
-        $('.wrapper-view').after(modal.show().el);
+        modal.show();
     }
 });
 

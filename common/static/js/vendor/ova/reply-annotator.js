@@ -1,6 +1,6 @@
 /* 
  Reply Annotator Plugin v1.0 (https://github.com/danielcebrian/reply-annotator)
- Copyright (C) 2014 Daniel Cebri‡n Robles
+ Copyright (C) 2014 Daniel Cebrian Robles
  License: https://github.com/danielcebrian/reply-annotator/blob/master/License.rst
  
  This program is free software; you can redistribute it and/or
@@ -82,6 +82,7 @@ Annotator.Plugin.Reply = (function(_super) {
 				var string;
 				return self;
 			});
+		field.remove();
 		this.annotation = annotation;
 		//Create the actions for the buttons
 		return ret;

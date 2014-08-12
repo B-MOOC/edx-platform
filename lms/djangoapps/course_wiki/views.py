@@ -1,3 +1,6 @@
+"""
+This file contains view functions for wrapping the django-wiki.
+"""
 import logging
 import re
 import cgi
@@ -13,11 +16,12 @@ from wiki.models import URLPath, Article
 
 from courseware.courses import get_course_by_id
 from course_wiki.utils import course_wiki_slug
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 
 log = logging.getLogger(__name__)
 
 
-def root_create(request):
+def root_create(request):  # pylint: disable=W0613
     """
     In the edX wiki, we don't show the root_create view. Instead, we
     just create the root automatically if it doesn't exist.
@@ -26,13 +30,13 @@ def root_create(request):
     return redirect('wiki:get', path=root.path)
 
 
-def course_wiki_redirect(request, course_id):
+def course_wiki_redirect(request, course_id):  # pylint: disable=W0613
     """
     This redirects to whatever page on the wiki that the course designates
     as it's home page. A course's wiki must be an article on the root (for
     example, "/6.002x") to keep things simple.
     """
-    course = get_course_by_id(course_id)
+    course = get_course_by_id(SlashSeparatedCourseKey.from_deprecated_string(course_id))
     course_slug = course_wiki_slug(course)
 
     valid_slug = True
@@ -46,17 +50,17 @@ def course_wiki_redirect(request, course_id):
     if not valid_slug:
         return redirect("wiki:get", path="")
 
-
     # The wiki needs a Site object created. We make sure it exists here
     try:
-        site = Site.objects.get_current()
+        Site.objects.get_current()
     except Site.DoesNotExist:
         new_site = Site()
         new_site.domain = settings.SITE_NAME
         new_site.name = "edX"
         new_site.save()
-        if str(new_site.id) != str(settings.SITE_ID):
-            raise ImproperlyConfigured("No site object was created and the SITE_ID doesn't match the newly created one. " + str(new_site.id) + "!=" + str(settings.SITE_ID))
+        site_id = str(new_site.id)  # pylint: disable=E1101
+        if site_id != str(settings.SITE_ID):
+            raise ImproperlyConfigured("No site object was created and the SITE_ID doesn't match the newly created one. {} != {}".format(site_id, settings.SITE_ID))
 
     try:
         urlpath = URLPath.get_by_path(course_slug, select_related=True)

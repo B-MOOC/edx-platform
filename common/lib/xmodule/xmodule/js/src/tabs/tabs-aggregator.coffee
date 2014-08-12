@@ -8,9 +8,6 @@ class @TabsEditingDescriptor
     (Like many CodeMirrors).
     ###
 
-    # hide editor/settings bar
-    @element.closest('.component-editor').find('.component-edit-header').hide()
-
     @$tabs = $(".tab", @element)
     @$content = $(".component-tab", @element)
 
@@ -25,7 +22,7 @@ class @TabsEditingDescriptor
     currentTab.trigger("click", [true, @html_id])
 
   onSwitchEditor: (e, firstTime, html_id) =>
-    e.preventDefault();
+    e.preventDefault()
 
     isInactiveClass = TabsEditingDescriptor.isInactiveClass
     $currentTarget = $(e.currentTarget)
@@ -35,7 +32,7 @@ class @TabsEditingDescriptor
 
       @$tabs.each( (index, value) ->
         if $(value).hasClass('current')
-          previousTab = $(value).html()
+          previousTab = $(value).data('tab_name')
       )
 
       # init and save data from previous tab
@@ -45,7 +42,7 @@ class @TabsEditingDescriptor
       # (to be implemented when there is a use case for this functionality)
 
       # call onswitch
-      onSwitchFunction = TabsEditingDescriptor.Model.modules[@html_id].tabSwitch[$currentTarget.text()]
+      onSwitchFunction = TabsEditingDescriptor.Model.modules[@html_id].tabSwitch[$currentTarget.data('tab_name')]
       onSwitchFunction() if $.isFunction(onSwitchFunction)
 
       @$tabs.removeClass('current')
@@ -62,7 +59,7 @@ class @TabsEditingDescriptor
 
   save: ->
     @element.off('click', '.editor-tabs .tab', @onSwitchEditor)
-    current_tab = @$tabs.filter('.current').html()
+    current_tab = @$tabs.filter('.current').data('tab_name')
     data: TabsEditingDescriptor.Model.getValue(@html_id, current_tab)
 
   setMetadataEditor : (metadataEditor) ->

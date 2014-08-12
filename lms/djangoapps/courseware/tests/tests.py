@@ -11,14 +11,13 @@ from textwrap import dedent
 
 from xmodule.error_module import ErrorDescriptor
 from xmodule.modulestore.django import modulestore
-from xmodule.modulestore import Location
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from xmodule.modulestore.xml_importer import import_from_xml
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
 from courseware.tests.helpers import LoginEnrollmentTestCase
 from courseware.tests.modulestore_config import TEST_DATA_DIR, \
     TEST_DATA_MONGO_MODULESTORE, \
-    TEST_DATA_DRAFT_MONGO_MODULESTORE, \
     TEST_DATA_MIXED_MODULESTORE
 from lms.lib.xblock.field_data import LmsFieldData
 
@@ -48,7 +47,7 @@ class PageLoaderTestCase(LoginEnrollmentTestCase):
     Base class that adds a function to load all pages in a modulestore.
     """
 
-    def check_all_pages_load(self, course_id):
+    def check_all_pages_load(self, course_key):
         """
         Assert that all pages in the course load correctly.
         `course_id` is the ID of the course to check.
@@ -57,22 +56,11 @@ class PageLoaderTestCase(LoginEnrollmentTestCase):
         store = modulestore()
 
         # Enroll in the course before trying to access pages
-        course = store.get_course(course_id)
+        course = store.get_course(course_key)
         self.enroll(course, True)
 
         # Search for items in the course
-        # None is treated as a wildcard
-        course_loc = course.location
-        location_query = Location(
-            course_loc.tag, course_loc.org,
-            course_loc.course, None, None, None
-        )
-
-        items = store.get_items(
-            location_query,
-            course_id=course_id,
-            depth=2
-        )
+        items = store.get_items(course_key)
 
         if len(items) < 1:
             self.fail('Could not retrieve any items from course')
@@ -82,22 +70,22 @@ class PageLoaderTestCase(LoginEnrollmentTestCase):
 
             if descriptor.location.category == 'about':
                 self._assert_loads('about_course',
-                                   {'course_id': course_id},
+                                   {'course_id': course_key.to_deprecated_string()},
                                    descriptor)
 
             elif descriptor.location.category == 'static_tab':
-                kwargs = {'course_id': course_id,
+                kwargs = {'course_id': course_key.to_deprecated_string(),
                           'tab_slug': descriptor.location.name}
                 self._assert_loads('static_tab', kwargs, descriptor)
 
             elif descriptor.location.category == 'course_info':
-                self._assert_loads('info', {'course_id': course_id},
+                self._assert_loads('info', {'course_id': course_key.to_deprecated_string()},
                                    descriptor)
 
             else:
 
-                kwargs = {'course_id': course_id,
-                          'location': descriptor.location.url()}
+                kwargs = {'course_id': course_key.to_deprecated_string(),
+                          'location': descriptor.location.to_deprecated_string()}
 
                 self._assert_loads('jump_to', kwargs, descriptor,
                                    expect_redirect=True,
@@ -118,7 +106,7 @@ class PageLoaderTestCase(LoginEnrollmentTestCase):
 
         if response.status_code != 200:
             self.fail('Status %d for page %s' %
-                      (response.status_code, descriptor.location.url()))
+                      (response.status_code, descriptor.location))
 
         if expect_redirect:
             self.assertEqual(response.redirect_chain[0][1], 302)
@@ -142,12 +130,9 @@ class TestXmlCoursesLoad(ModuleStoreTestCase, PageLoaderTestCase):
         # Load one of the XML based courses
         # Our test mapping rules allow the MixedModuleStore
         # to load this course from XML, not Mongo.
-        self.check_all_pages_load('edX/toy/2012_Fall')
+        self.check_all_pages_load(SlashSeparatedCourseKey('edX', 'toy', '2012_Fall'))
 
 
-# Importing XML courses isn't possible with MixedModuleStore,
-# so we use a Mongo modulestore directly (as we would in Studio)
-@override_settings(MODULESTORE=TEST_DATA_MONGO_MODULESTORE)
 class TestMongoCoursesLoad(ModuleStoreTestCase, PageLoaderTestCase):
     """
     Check that all pages in test courses load properly from Mongo.
@@ -157,9 +142,8 @@ class TestMongoCoursesLoad(ModuleStoreTestCase, PageLoaderTestCase):
         super(TestMongoCoursesLoad, self).setUp()
         self.setup_user()
 
-        # Import the toy course into a Mongo-backed modulestore
-        self.store = modulestore()
-        import_from_xml(self.store, TEST_DATA_DIR, ['toy'])
+        # Import the toy course
+        import_from_xml(self.store, self.user.id, TEST_DATA_DIR, ['toy'])
 
     @mock.patch('xmodule.course_module.requests.get')
     def test_toy_textbooks_loads(self, mock_get):
@@ -169,19 +153,17 @@ class TestMongoCoursesLoad(ModuleStoreTestCase, PageLoaderTestCase):
             </table_of_contents>
         """).strip()
 
-        location = Location(['i4x', 'edX', 'toy', 'course', '2012_Fall', None])
+        location = SlashSeparatedCourseKey('edX', 'toy', '2012_Fall').make_usage_key('course', '2012_Fall')
         course = self.store.get_item(location)
         self.assertGreater(len(course.textbooks), 0)
 
 
-@override_settings(MODULESTORE=TEST_DATA_DRAFT_MONGO_MODULESTORE)
 class TestDraftModuleStore(ModuleStoreTestCase):
     def test_get_items_with_course_items(self):
         store = modulestore()
 
         # fix was to allow get_items() to take the course_id parameter
-        store.get_items(Location(None, None, 'vertical', None, None),
-                        course_id='abc', depth=0)
+        store.get_items(SlashSeparatedCourseKey('abc', 'def', 'ghi'), category='vertical')
 
         # test success is just getting through the above statement.
         # The bug was that 'course_id' argument was

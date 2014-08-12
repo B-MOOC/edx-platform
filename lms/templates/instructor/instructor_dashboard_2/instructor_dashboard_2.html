@@ -22,7 +22,16 @@
 
 <%block name="headextra">
   <%static:css group='style-course-vendor'/>
+  <%static:css group='style-vendor-tinymce-content'/>
+  <%static:css group='style-vendor-tinymce-skin'/>
   <%static:css group='style-course'/>
+  <script type="text/javascript">
+    // This is a hack to get tinymce to work correctly in Firefox until the annotator tool is refactored to not include
+    // tinymce globally.
+    if(typeof window.Range.prototype === "undefined") {
+        window.Range.prototype = { };
+    }
+  </script>
   <script type="text/javascript" src="${static.url('js/vendor/underscore-min.js')}"></script>
   <script type="text/javascript" src="${static.url('js/vendor/mustache.js')}"></script>
   <script type="text/javascript" src="${static.url('js/vendor/flot/jquery.flot.js')}"></script>
@@ -37,8 +46,8 @@
   <link rel="stylesheet" href="${static.url('css/vendor/slickgrid/smoothness/jquery-ui-1.8.16.custom.css')}">
   <link rel="stylesheet" href="${static.url('css/vendor/slickgrid/slick.grid.css')}">
   <script type="text/javascript" src="${static.url('js/vendor/codemirror-compressed.js')}"></script>
-  <script type="text/javascript" src="${static.url('js/vendor/tiny_mce/tiny_mce.js')}"></script>
-  <script type="text/javascript" src="${static.url('js/vendor/tiny_mce/jquery.tinymce.js')}"></script>
+  <script type="text/javascript" src="${static.url('js/vendor/tinymce/js/tinymce/tinymce.full.min.js')}"></script>
+  <script type="text/javascript" src="${static.url('js/vendor/tinymce/js/tinymce/jquery.tinymce.min.js')}"></script>
   <%static:js group='module-descriptor-js'/>
   <%static:js group='instructor_dash'/>
 </%block>
@@ -52,23 +61,31 @@
 
 <section class="container">
 <div class="instructor-dashboard-wrapper-2">
-<div class="olddash-button-wrapper"><a href="${ old_dashboard_url }"> ${_("Back to Standard Dashboard")} </a></div>
-%if studio_url:
-  ## not checking access because if user can see this, they are at least course staff (with studio edit access)
-  <div class="studio-edit-link"><a href="${studio_url}" target="_blank">${_('Edit Course In Studio')}</a></div>
-%endif
-<section class="instructor-dashboard-content-2" id="instructor-dashboard-content">
+  <section class="instructor-dashboard-content-2" id="instructor-dashboard-content">
+    <div class="wrap-instructor-info studio-view">
+      %if studio_url:
+      <a class="instructor-info-action" href="${studio_url}">${_("View Course in Studio")}</a>
+      %endif
+      %if settings.FEATURES.get('ENABLE_INSTRUCTOR_LEGACY_DASHBOARD'):
+      <a class="instructor-info-action" href="${ old_dashboard_url }"> ${_("Revert to Legacy Dashboard")} </a>
+      %endif
+    </div>
 
   <h1>${_("Instructor Dashboard")}</h1>
-  <hr />
+    <div class="wrapper-msg urgency-low msg-warning is-shown">
+        <p>${_("We've changed the look and feel of the Instructor Dashboard. During this transition time, you can still access the old Instructor Dashboard by clicking the 'Revert to Legacy Dashboard' button above.")}</p>
+    </div>
+
   ## links which are tied to idash-sections below.
-  ## the links are acativated and handled in instructor_dashboard.coffee
+  ## the links are activated and handled in instructor_dashboard.coffee
   ## when the javascript loads, it clicks on the first section
-  <h2 class="instructor-nav">
+  <ul class="instructor-nav">
     % for section_data in sections:
-      <a href="" data-section="${ section_data['section_key'] }">${_(section_data['section_display_name'])}</a>
+      ## This is necessary so we don't scrape 'section_display_name' as a string.
+      <% dname = section_data['section_display_name'] %>
+      <li class="nav-item"><a href="" data-section="${ section_data['section_key'] }">${_(dname)}</a></li>
     % endfor
-  </h2>
+  </ul>
 
   ## each section corresponds to a section_data sub-dictionary provided by the view
   ## to keep this short, sections can be pulled out into their own files
@@ -77,8 +94,7 @@
     <section id="${ section_data['section_key'] }" class="idash-section">
       <%include file="${ section_data['section_key'] }.html" args="section_data=section_data" />
     </section>
-  % endfor
-
-</section>
+    % endfor
+  </section>
 </div>
 </section>

@@ -4,7 +4,7 @@
 // basic setup
 html {
   font-size: 62.5%;
-  overflow-y: scroll;
+  height: 102%; // force scrollbar to prevent jump when scroll appears, cannot use overflow because it breaks drag
 }
 
 body {
@@ -334,6 +334,7 @@ p, ul, ol, dl {
       .navigation-link {
         @extend %cont-truncated;
         display: inline-block;
+        vertical-align: bottom; // correct for extra padding in FF
         max-width: 250px;
 
         &.navigation-current {
@@ -754,10 +755,10 @@ hr.divide {
 .tooltip {
   @include font-size(12);
   @include transition(opacity $tmg-f3 ease-out 0s);
+  @extend %ui-depth5;
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 10000;
   padding: 0 10px;
   border-radius: 3px;
   background: rgba(0, 0, 0, 0.85);
@@ -782,12 +783,20 @@ hr.divide {
 // ====================
 
 // basic utility
+
+// UI - semantically hide text
 .sr {
   @extend %cont-text-sr;
 }
 
+// UI - faking a link's behavior
 .fake-link {
-  cursor: pointer;
+  @extend %ui-fake-link;
+}
+
+// UI - disabled
+.is-disabled {
+  @extend %ui-disabled;
 }
 
 .non-list {

@@ -1,5 +1,6 @@
 <%! from django.utils.translation import ugettext as _ %>
 <%inherit file="base.html" />
+<%def name="online_help_token()"><% return "register" %></%def>
 <%! from django.core.urlresolvers import reverse %>
 
 <%block name="title">${_("Sign Up")}</%block>
@@ -118,7 +119,7 @@ require(["jquery", "jquery.cookie"], function($) {
       data: submit_data,
       headers: {'X-CSRFToken': $.cookie('csrftoken')},
       success: function(json) {
-        location.href = "/course";
+        location.href = "/course/";
       },
       error: function(jqXHR, textStatus, errorThrown) {
         json = $.parseJSON(jqXHR.responseText);

@@ -15,9 +15,9 @@ from django.core.management.base import CommandError
 from django.test.utils import override_settings
 
 from courseware.tests.tests import TEST_DATA_MONGO_MODULESTORE
-from xmodule.contentstore.django import contentstore
+from xmodule.modulestore import ModuleStoreEnum
 from xmodule.modulestore.django import modulestore
-from xmodule.modulestore.store_utilities import delete_course
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 import dashboard.git_import as git_import
 from dashboard.git_import import GitImportError
@@ -45,7 +45,7 @@ class TestGitAddCourse(ModuleStoreTestCase):
     TEST_REPO = 'https://github.com/mitocw/edx4edx_lite.git'
     TEST_COURSE = 'MITx/edx4edx/edx4edx'
     TEST_BRANCH = 'testing_do_not_delete'
-    TEST_BRANCH_COURSE = 'MITx/edx4edx_branch/edx4edx'
+    TEST_BRANCH_COURSE = SlashSeparatedCourseKey('MITx', 'edx4edx_branch', 'edx4edx')
     GIT_REPO_DIR = getattr(settings, 'GIT_REPO_DIR')
 
     def assertCommandFailureRegexp(self, regex, *args):
@@ -86,7 +86,6 @@ class TestGitAddCourse(ModuleStoreTestCase):
         call_command('git_add_course', self.TEST_REPO,
                      self.GIT_REPO_DIR / 'edx4edx_lite',
                      self.TEST_BRANCH)
-
 
     def test_add_repo(self):
         """
@@ -161,15 +160,13 @@ class TestGitAddCourse(ModuleStoreTestCase):
                             self.TEST_BRANCH)
 
         # Delete to test branching back to master
-        delete_course(def_ms, contentstore(),
-                      def_ms.get_course(self.TEST_BRANCH_COURSE).location,
-                      True)
+        def_ms.delete_course(self.TEST_BRANCH_COURSE, ModuleStoreEnum.UserID.test)
         self.assertIsNone(def_ms.get_course(self.TEST_BRANCH_COURSE))
         git_import.add_repo(self.TEST_REPO,
                             repo_dir / 'edx4edx_lite',
                             'master')
         self.assertIsNone(def_ms.get_course(self.TEST_BRANCH_COURSE))
-        self.assertIsNotNone(def_ms.get_course(self.TEST_COURSE))
+        self.assertIsNotNone(def_ms.get_course(SlashSeparatedCourseKey.from_deprecated_string(self.TEST_COURSE)))
 
     def test_branch_exceptions(self):
         """

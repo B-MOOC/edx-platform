@@ -27,7 +27,11 @@
     </button>
 
     <header>
-      <h2>${_('{span_start}{platform_name}{span_end} Help').format(span_start='<span class="edx">', span_end='</span>', platform_name=platform_name)}</h2>
+      <h2>
+	${_('{platform_name} Help').format(
+	    platform_name=u'<span class="edx">{}</span>'.format(platform_name)
+	)}
+      </h2>
       <hr>
     </header>
 
@@ -95,7 +99,7 @@
       <textarea name="details" id="feedback_form_details" aria-required="true"></textarea>
       <input name="issue_type" type="hidden">
 % if course:
-      <input name="course_id" type="hidden" value="${course.id | h}">
+      <input name="course_id" type="hidden" value="${course.id.to_deprecated_string() | h}">
 % endif
       <div class="submit">
         <input name="submit" type="submit" value="${_('Submit')}" id="feedback_submit">

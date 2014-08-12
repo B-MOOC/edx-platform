@@ -18,18 +18,65 @@ from webob.multidict import MultiDict
 from xblock.core import XBlock
 from xblock.fields import Scope, Integer, Float, List, XBlockMixin, String, Dict
 from xblock.fragment import Fragment
-from xblock.plugin import default_select
-from xblock.runtime import Runtime
+from xblock.runtime import Runtime, IdReader
 from xmodule.fields import RelativeTime
 
 from xmodule.errortracker import exc_info_to_str
-from xmodule.modulestore import Location
-from xmodule.modulestore.exceptions import ItemNotFoundError, InsufficientSpecificationError, InvalidLocationError
-from xmodule.modulestore.locator import BlockUsageLocator
+from xmodule.modulestore.exceptions import ItemNotFoundError
+from opaque_keys.edx.keys import UsageKey
 from xmodule.exceptions import UndefinedContext
+from dogapi import dog_stats_api
 
 
 log = logging.getLogger(__name__)
+
+XMODULE_METRIC_NAME = 'edxapp.xmodule'
+
+# xblock view names
+
+# This is the view that will be rendered to display the XBlock in the LMS.
+# It will also be used to render the block in "preview" mode in Studio, unless
+# the XBlock also implements author_view.
+STUDENT_VIEW = 'student_view'
+
+# An optional view of the XBlock similar to student_view, but with possible inline
+# editing capabilities. This view differs from studio_view in that it should be as similar to student_view
+# as possible. When previewing XBlocks within Studio, Studio will prefer author_view to student_view.
+AUTHOR_VIEW = 'author_view'
+
+# The view used to render an editor in Studio. The editor rendering can be completely different
+# from the LMS student_view, and it is only shown when the author selects "Edit".
+STUDIO_VIEW = 'studio_view'
+
+# Views that present a "preview" view of an xblock (as opposed to an editing view).
+PREVIEW_VIEWS = [STUDENT_VIEW, AUTHOR_VIEW]
+
+
+class OpaqueKeyReader(IdReader):
+    """
+    IdReader for :class:`DefinitionKey` and :class:`UsageKey`s.
+    """
+    def get_definition_id(self, usage_id):
+        """Retrieve the definition that a usage is derived from.
+
+        Args:
+            usage_id: The id of the usage to query
+
+        Returns:
+            The `definition_id` the usage is derived from
+        """
+        return usage_id.definition_key
+
+    def get_block_type(self, def_id):
+        """Retrieve the block_type of a particular definition
+
+        Args:
+            def_id: The id of the definition to query
+
+        Returns:
+            The `block_type` of the definition
+        """
+        return def_id.block_type
 
 
 def dummy_track(_event_type, _event):
@@ -153,11 +200,7 @@ class XModuleMixin(XBlockMixin):
 
     @property
     def course_id(self):
-        return self.runtime.course_id
-
-    @property
-    def id(self):
-        return self.location.url()
+        return self.location.course_key
 
     @property
     def category(self):
@@ -165,16 +208,11 @@ class XModuleMixin(XBlockMixin):
 
     @property
     def location(self):
-        try:
-            return Location(self.scope_ids.usage_id)
-        except InvalidLocationError:
-            if isinstance(self.scope_ids.usage_id, BlockUsageLocator):
-                return self.scope_ids.usage_id
-            else:
-                return BlockUsageLocator(self.scope_ids.usage_id)
+        return self.scope_ids.usage_id
 
     @location.setter
     def location(self, value):
+        assert isinstance(value, UsageKey)
         self.scope_ids = self.scope_ids._replace(
             def_id=value,
             usage_id=value,
@@ -182,12 +220,7 @@ class XModuleMixin(XBlockMixin):
 
     @property
     def url_name(self):
-        if isinstance(self.location, Location):
-            return self.location.name
-        elif isinstance(self.location, BlockUsageLocator):
-            return self.location.block_id
-        else:
-            raise InsufficientSpecificationError()
+        return self.location.name
 
     @property
     def display_name_with_default(self):
@@ -200,6 +233,17 @@ class XModuleMixin(XBlockMixin):
             name = self.url_name.replace('_', ' ')
         return name
 
+    @property
+    def xblock_kvs(self):
+        """
+        Retrieves the internal KeyValueStore for this XModule.
+
+        Should only be used by the persistence layer. Use with caution.
+        """
+        # if caller wants kvs, caller's assuming it's up to date; so, decache it
+        self.save()
+        return self._field_data._kvs  # pylint: disable=protected-access
+
     def get_explicitly_set_fields_by_scope(self, scope=Scope.content):
         """
         Get a dictionary of the fields for the given scope which are set explicitly on this xblock. (Including
@@ -211,14 +255,28 @@ class XModuleMixin(XBlockMixin):
                 result[field.name] = field.read_json(self)
         return result
 
-    @property
-    def xblock_kvs(self):
+    def has_children_at_depth(self, depth):
         """
-        Use w/ caution. Really intended for use by the persistence layer.
+        Returns true if self has children at the given depth. depth==0 returns
+        false if self is a leaf, true otherwise.
+
+                           SELF
+                            |
+                     [child at depth 0]
+                     /           \
+                 [depth 1]    [depth 1]
+                 /       \
+           [depth 2]   [depth 2]
+
+        So the example above would return True for `has_children_at_depth(2)`, and False
+        for depth > 2
         """
-        # if caller wants kvs, caller's assuming it's up to date; so, decache it
-        self.save()
-        return self._field_data._kvs  # pylint: disable=protected-access
+        if depth < 0:
+            raise ValueError("negative depth argument is invalid")
+        elif depth == 0:
+            return bool(self.get_children())
+        else:
+            return any(child.has_children_at_depth(depth - 1) for child in self.get_children())
 
     def get_content_titles(self):
         """
@@ -547,7 +605,7 @@ def policy_key(location):
     Get the key for a location in a policy file.  (Since the policy file is
     specific to a course, it doesn't need the full location url).
     """
-    return '{cat}/{name}'.format(cat=location.category, name=location.name)
+    return u'{cat}/{name}'.format(cat=location.category, name=location.name)
 
 
 Template = namedtuple("Template", "metadata data children")
@@ -681,7 +739,6 @@ class XModuleDescriptor(XModuleMixin, HTMLSnippet, ResourceTemplates, XBlock):
         Interpret the parsed XML in `node`, creating an XModuleDescriptor.
         """
         xml = etree.tostring(node)
-        # TODO: change from_xml to not take org and course, it can use self.system.
         block = cls.from_xml(xml, runtime, id_generator)
         return block
 
@@ -733,6 +790,24 @@ class XModuleDescriptor(XModuleMixin, HTMLSnippet, ResourceTemplates, XBlock):
         """
         raise NotImplementedError('Modules must implement export_to_xml to enable xml export')
 
+    def editor_saved(self, user, old_metadata, old_content):
+        """
+        This method is called when "Save" is pressed on the Studio editor.
+
+        Note that after this method is called, the modulestore update_item method will
+        be called on this xmodule. Therefore, any modifications to the xmodule that are
+        performed in editor_saved will automatically be persisted (calling update_item
+        from implementors of this method is not necessary).
+
+        Args:
+            user: the user who requested the save (as obtained from the request)
+            old_metadata (dict): the values of the fields with Scope.settings before the save was performed
+            old_content (dict): the values of the fields with Scope.content before the save was performed.
+                This will include 'data'.
+        """
+        pass
+
+
     # =============================== BUILTIN METHODS ==========================
     def __eq__(self, other):
         return (self.scope_ids == other.scope_ids and
@@ -759,7 +834,6 @@ class XModuleDescriptor(XModuleMixin, HTMLSnippet, ResourceTemplates, XBlock):
         # We are not allowing editing of xblock tag and name fields at this time (for any component).
         return [XBlock.tags, XBlock.name]
 
-
     @property
     def editable_metadata_fields(self):
         """
@@ -767,14 +841,6 @@ class XModuleDescriptor(XModuleMixin, HTMLSnippet, ResourceTemplates, XBlock):
 
         Can be limited by extending `non_editable_metadata_fields`.
         """
-        def jsonify_value(field, json_choice):
-            if isinstance(json_choice, dict) and 'value' in json_choice:
-                json_choice = dict(json_choice)  # make a copy so below doesn't change the original
-                json_choice['value'] = field.to_json(json_choice['value'])
-            else:
-                json_choice = field.to_json(json_choice)
-            return json_choice
-
         metadata_fields = {}
 
         # Only use the fields from this class, not mixins
@@ -785,36 +851,62 @@ class XModuleDescriptor(XModuleMixin, HTMLSnippet, ResourceTemplates, XBlock):
             if field.scope != Scope.settings or field in self.non_editable_metadata_fields:
                 continue
 
-            # gets the 'default_value' and 'explicitly_set' attrs
-            metadata_fields[field.name] = self.runtime.get_field_provenance(self, field)
-            metadata_fields[field.name]['field_name'] = field.name
-            metadata_fields[field.name]['display_name'] = field.display_name
-            metadata_fields[field.name]['help'] = field.help
-            metadata_fields[field.name]['value'] = field.read_json(self)
-
-            # We support the following editors:
-            # 1. A select editor for fields with a list of possible values (includes Booleans).
-            # 2. Number editors for integers and floats.
-            # 3. A generic string editor for anything else (editing JSON representation of the value).
-            editor_type = "Generic"
-            values = field.values
-            if isinstance(values, (tuple, list)) and len(values) > 0:
-                editor_type = "Select"
-                values = [jsonify_value(field, json_choice) for json_choice in values]
-            elif isinstance(field, Integer):
-                editor_type = "Integer"
-            elif isinstance(field, Float):
-                editor_type = "Float"
-            elif isinstance(field, List):
-                editor_type = "List"
-            elif isinstance(field, Dict):
-                editor_type = "Dict"
-            elif isinstance(field, RelativeTime):
-                editor_type = "RelativeTime"
-            metadata_fields[field.name]['type'] = editor_type
-            metadata_fields[field.name]['options'] = [] if values is None else values
+            metadata_fields[field.name] = self._create_metadata_editor_info(field)
 
         return metadata_fields
+
+    def _create_metadata_editor_info(self, field):
+        """
+        Creates the information needed by the metadata editor for a specific field.
+        """
+        def jsonify_value(field, json_choice):
+            if isinstance(json_choice, dict):
+                json_choice = dict(json_choice)  # make a copy so below doesn't change the original
+                if 'display_name' in json_choice:
+                    json_choice['display_name'] = get_text(json_choice['display_name'])
+                if 'value' in json_choice:
+                    json_choice['value'] = field.to_json(json_choice['value'])
+            else:
+                json_choice = field.to_json(json_choice)
+            return json_choice
+
+        def get_text(value):
+            """Localize a text value that might be None."""
+            if value is None:
+                return None
+            else:
+                return self.runtime.service(self, "i18n").ugettext(value)
+
+        # gets the 'default_value' and 'explicitly_set' attrs
+        metadata_field_editor_info = self.runtime.get_field_provenance(self, field)
+        metadata_field_editor_info['field_name'] = field.name
+        metadata_field_editor_info['display_name'] = get_text(field.display_name)
+        metadata_field_editor_info['help'] = get_text(field.help)
+        metadata_field_editor_info['value'] = field.read_json(self)
+
+        # We support the following editors:
+        # 1. A select editor for fields with a list of possible values (includes Booleans).
+        # 2. Number editors for integers and floats.
+        # 3. A generic string editor for anything else (editing JSON representation of the value).
+        editor_type = "Generic"
+        values = field.values
+        if isinstance(values, (tuple, list)) and len(values) > 0:
+            editor_type = "Select"
+            values = [jsonify_value(field, json_choice) for json_choice in values]
+        elif isinstance(field, Integer):
+            editor_type = "Integer"
+        elif isinstance(field, Float):
+            editor_type = "Float"
+        elif isinstance(field, List):
+            editor_type = "List"
+        elif isinstance(field, Dict):
+            editor_type = "Dict"
+        elif isinstance(field, RelativeTime):
+            editor_type = "RelativeTime"
+        metadata_field_editor_info['type'] = editor_type
+        metadata_field_editor_info['options'] = [] if values is None else values
+
+        return metadata_field_editor_info
 
     # ~~~~~~~~~~~~~~~ XModule Indirection ~~~~~~~~~~~~~~~~
     @property
@@ -861,7 +953,7 @@ class XModuleDescriptor(XModuleMixin, HTMLSnippet, ResourceTemplates, XBlock):
     get_score = module_attr('get_score')
     handle_ajax = module_attr('handle_ajax')
     max_score = module_attr('max_score')
-    student_view = module_attr('student_view')
+    student_view = module_attr(STUDENT_VIEW)
     get_child_descriptors = module_attr('get_child_descriptors')
     xmodule_handler = module_attr('xmodule_handler')
 
@@ -926,7 +1018,52 @@ def descriptor_global_local_resource_url(block, uri):  # pylint: disable=invalid
     raise NotImplementedError("Applications must monkey-patch this function before using local_resource_url for studio_view")
 
 
-class DescriptorSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abstract-method
+class MetricsMixin(object):
+    """
+    Mixin for adding metric logging for render and handle methods in the DescriptorSystem and ModuleSystem.
+    """
+
+    def render(self, block, view_name, context=None):
+        try:
+            status = "success"
+            return super(MetricsMixin, self).render(block, view_name, context=context)
+
+        except:
+            status = "failure"
+            raise
+
+        finally:
+            course_id = getattr(self, 'course_id', '')
+            dog_stats_api.increment(XMODULE_METRIC_NAME, tags=[
+                u'view_name:{}'.format(view_name),
+                u'action:render',
+                u'action_status:{}'.format(status),
+                u'course_id:{}'.format(course_id),
+                u'block_type:{}'.format(block.scope_ids.block_type)
+            ])
+
+    def handle(self, block, handler_name, request, suffix=''):
+        handle = None
+        try:
+            status = "success"
+            return super(MetricsMixin, self).handle(block, handler_name, request, suffix=suffix)
+
+        except:
+            status = "failure"
+            raise
+
+        finally:
+            course_id = getattr(self, 'course_id', '')
+            dog_stats_api.increment(XMODULE_METRIC_NAME, tags=[
+                u'handler_name:{}'.format(handler_name),
+                u'action:handle',
+                u'action_status:{}'.format(status),
+                u'course_id:{}'.format(course_id),
+                u'block_type:{}'.format(block.scope_ids.block_type)
+            ])
+
+
+class DescriptorSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abstract-method
     """
     Base class for :class:`Runtime`s to be used with :class:`XModuleDescriptor`s
     """
@@ -975,7 +1112,7 @@ class DescriptorSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable
         local_resource_url: an implementation of :meth:`xblock.runtime.Runtime.local_resource_url`
 
         """
-        super(DescriptorSystem, self).__init__(**kwargs)
+        super(DescriptorSystem, self).__init__(id_reader=OpaqueKeyReader(), **kwargs)
 
         # This is used by XModules to write out separate files during xml export
         self.export_fs = None
@@ -1020,7 +1157,7 @@ class DescriptorSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable
         return result
 
     def render(self, block, view_name, context=None):
-        if view_name == 'student_view':
+        if view_name in PREVIEW_VIEWS:
             assert block.xmodule_runtime is not None
             if isinstance(block, (XModule, XModuleDescriptor)):
                 to_render = block._xmodule
@@ -1086,7 +1223,7 @@ class XMLParsingSystem(DescriptorSystem):
         self.process_xml = process_xml
 
 
-class ModuleSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abstract-method
+class ModuleSystem(MetricsMixin, ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abstract-method
     """
     This is an abstraction such that x_modules can function independent
     of the courseware (e.g. import into other types of courseware, LMS,
@@ -1106,8 +1243,8 @@ class ModuleSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abs
             open_ended_grading_interface=None, s3_interface=None,
             cache=None, can_execute_unsafe_code=None, replace_course_urls=None,
             replace_jump_to_id_urls=None, error_descriptor_class=None, get_real_user=None,
-            field_data=None, get_user_role=None,
-            **kwargs):
+            field_data=None, get_user_role=None, rebind_noauth_module_to_user=None,
+            user_location=None, **kwargs):
         """
         Create a closure around the system environment.
 
@@ -1165,11 +1302,14 @@ class ModuleSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abs
             for LMS and Studio.
 
         field_data - the `FieldData` to use for backing XBlock storage.
+
+        rebind_noauth_module_to_user - rebinds module bound to AnonymousUser to a real user...used in LTI
+           modules, which have an anonymous handler, to set legitimate users' data
         """
 
         # Usage_store is unused, and field_data is often supplanted with an
         # explicit field_data during construct_xblock.
-        super(ModuleSystem, self).__init__(id_reader=None, field_data=field_data, **kwargs)
+        super(ModuleSystem, self).__init__(id_reader=OpaqueKeyReader(), field_data=field_data, **kwargs)
 
         self.STATIC_URL = static_url
         self.xqueue = xqueue
@@ -1200,9 +1340,11 @@ class ModuleSystem(ConfigurableFragmentWrapper, Runtime):  # pylint: disable=abs
         self.xmodule_instance = None
 
         self.get_real_user = get_real_user
+        self.user_location = user_location
 
         self.get_user_role = get_user_role
         self.descriptor_runtime = descriptor_runtime
+        self.rebind_noauth_module_to_user = rebind_noauth_module_to_user
 
     def get(self, attr):
         """	provide uniform access to attributes (like etree)."""

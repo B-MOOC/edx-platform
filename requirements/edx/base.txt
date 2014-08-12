@@ -4,8 +4,6 @@
 #   * @jtauber - to check licensing
 #   * One of @e0d, @jarv, or @feanil - to check system requirements
 
--r repo.txt
-
 beautifulsoup4==4.1.3
 beautifulsoup==3.2.1
 bleach==1.4
@@ -14,6 +12,7 @@ boto==2.13.3
 celery==3.0.19
 dealer==0.2.3
 distribute>=0.6.28, <0.7
+django-babel-underscore==0.1.0
 django-celery==3.0.17
 django-countries==1.5
 django-extensions==1.2.5
@@ -33,8 +32,9 @@ django-storages==1.1.5
 django-threaded-multihost==1.4-1
 django-method-override==0.1.0
 djangorestframework==2.3.5
-django==1.4.8
+django==1.4.12
 feedparser==5.1.3
+firebase-token-generator==1.3.2
 fs==0.4.0
 GitPython==0.3.2.RC1
 glob2==0.3
@@ -46,7 +46,8 @@ Markdown==2.2.1
 mongoengine==0.7.10
 networkx==1.7
 nltk==2.0.4
-oauthlib==0.5.1
+nose==1.3.3
+oauthlib==0.6.3
 paramiko==1.9.0
 path.py==3.0.1
 Pillow==1.7.8
@@ -56,20 +57,22 @@ pycrypto>=2.6
 pygments==1.6
 pygraphviz==1.1
 pymongo==2.4.1
-pyparsing==1.5.6
+pyparsing==2.0.1
 python-memcached==1.48
 python-openid==2.2.5
 python-dateutil==2.1
-python-social-auth==0.1.21
+python-social-auth==0.1.23
 pytz==2012h
 pysrt==0.4.7
 PyYAML==3.10
-requests==1.2.3
+requests==2.3.0
+requests-oauthlib==0.4.1
 scipy==0.11.0
 Shapely==1.2.16
 singledispatch==3.4.0.2
 sorl-thumbnail==11.12
 South==0.7.6
+stevedore==0.14.1
 sure==1.2.3
 sympy==0.7.1
 xmltodict==0.4.1
@@ -91,6 +94,9 @@ sphinx_rtd_theme==0.1.5
 Babel==1.3
 transifex-client==0.10
 
+# Ip network support for Embargo feature
+ipaddr==2.1.11
+
 # We've tried several times to update the debug toolbar to version 1.0.1,
 # and had problems each time, resulting in us rolling back to 0.9.4. Before
 # submitting another pull request to do this update, check the following:
@@ -104,9 +110,9 @@ django-debug-toolbar-mongo
 # Used for testing
 chrono==1.0.2
 coverage==3.7
-ddt==0.7.1
+ddt==0.8.0
 django-crum==0.5
-django_nose==1.1
+django_nose==1.2
 factory_boy==2.2.1
 freezegun==0.1.11
 mock==1.0.1
@@ -120,8 +126,12 @@ rednose==0.3
 selenium==2.39.0
 splinter==0.5.4
 testtools==0.9.34
+flaky==0.2.0
 
 git+https://github.com/mfogel/django-settings-context-processor.git
 
 # django-cas version 2.0.3 with patch to be compatible with django 1.4
 git+https://github.com/mitocw/django-cas.git
+
+# edX packages
+edx-submissions==0.0.3

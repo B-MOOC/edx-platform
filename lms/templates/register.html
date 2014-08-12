@@ -12,6 +12,7 @@
 <%! from django.utils.translation import ugettext as _ %>
 <%! from student.models import UserProfile %>
 <%! from datetime import date %>
+<%! from third_party_auth import pipeline, provider %>
 <%! import calendar %>
 
 <%block name="pagetitle">${_("Register for {platform_name}").format(platform_name=platform_name)}</%block>
@@ -67,7 +68,11 @@
       });
     })(this);
 
-    
+    function thirdPartySignin(event, url) {
+      event.preventDefault();
+      window.location.href = url;
+    }
+
     function toggleSubmitButton(enable) {
       var $submitButton = $('form .form-actions #submit');
 
@@ -89,8 +94,8 @@
 
 <section class="introduction">
   <header>
-    <h1 class="title">
-    
+     <h1 class="title">
+      
     % if course_id and enrollment_action:
  	 <span class="title-super" style="line-height:32px;">Pour participer à la formation,<br/> Veuillez
  	 vous connecter à l'université TALAN ! </span> 	 
@@ -98,8 +103,6 @@
 	 <span class="title-super">Bienvenue au sein de la communauté de l’Université TALAN !</span>
     % endif
     
-    
-     
     </h1>
   </header>
 </section>
@@ -134,16 +137,107 @@
         Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
       </p>
 
+      % if settings.FEATURES.get('ENABLE_THIRD_PARTY_AUTH'):
+
+        % if not running_pipeline:
+
+         % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
     % endif
-    
-          
-      
       <hr/>
       <p>
       <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
       </p>
 
-     
+        <div class="form-actions form-third-party-auth">
+
+        % for enabled in provider.Registry.enabled():
+          ## Translators: provider_name is the name of an external, third-party user authentication service (like Google or LinkedIn).
+          <button type="submit" class="button button-primary" onclick="thirdPartySignin(event, '${pipeline.get_login_url(enabled.NAME, pipeline.AUTH_ENTRY_REGISTER)}');"><span class="icon ${enabled.ICON_CLASS}"></span>${_('Sign in with {provider_name}').format(provider_name=enabled.NAME)}</button>
+        % endfor
+
+        </div>
+
+        % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
+
+        % else:
+
+        % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
+
+        % endif
+
+      % else:
+
+      % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
+
+      % endif
+
       <div class="group group-form group-form-requiredinformation hero">
         <h2 class="sr">${_('Required Information')}</h2>
 
@@ -152,7 +246,7 @@
         <ol class="list-input">
           <li class="field required text" id="field-email">
             <label for="email">${_('E-mail')}</label>
-            <input class="" id="email" type="email" name="email" value="" placeholder="${_('example: username@domain.com')}" required aria-required="true" />
+            <input class="" id="email" type="email" name="email" value="${email}" placeholder="${_('example: username@domain.com')}" required aria-required="true" />
           </li>
 
           % if settings.FEATURES.get('ENABLE_THIRD_PARTY_AUTH') and running_pipeline:
@@ -173,12 +267,12 @@
 
           <li class="field required text" id="field-username">
             <label for="username">${_('Public Username')}</label>
-            <input id="username" type="text" name="username" value="" placeholder="${_('example: JaneDoe')}" required aria-required="true" aria-describedby="username-tip"/>
+            <input id="username" type="text" name="username" value="${username}" placeholder="${_('example: JaneDoe')}" required aria-required="true" aria-describedby="username-tip"/>
             <span class="tip tip-input" id="username-tip">${_('Will be shown in any discussions or forums you participate in')} <strong>(${_('cannot be changed later')})</strong></span>
           </li>
           <li class="field required text" id="field-name">
             <label for="name">${_('Full Name')}</label>
-            <input id="name" type="text" name="name" value="" placeholder="${_('example: Jane Doe')}" required aria-required="true" aria-describedby="name-tip" />
+            <input id="name" type="text" name="name" value="${name}" placeholder="${_('example: Jane Doe')}" required aria-required="true" aria-describedby="name-tip" />
             <span class="tip tip-input" id="name-tip">${_("Needed for any certificates you may earn")}</span>
           </li>
         </ol>
@@ -224,8 +318,8 @@
 		<br/><br/>
       <div class="group group-form group-form-secondary group-form-personalinformation heroblock">
         <h2>${_("Extra Personal Information")}</h2>
-			
-        <ol class="list-input">
+
+         <ol class="list-input">
         
         
 
@@ -282,15 +376,14 @@
         </ol>
       </div>
 
-
-      <div class="group group-form group-form-accountacknowledgements">
+     <div class="group group-form group-form-accountacknowledgements">
         <h2 class="sr">${_("Account Acknowledgements")}</h2>
         
         <p>
          <i>Pour activer votre inscription à l’université TALAN veuillez lire attentivement les documents suivants et confirmer votre acceptation en cochant les cases suivantes : </i>
         </p>
 
-        <ol class="list-input">
+       <ol class="list-input">
           <li class="field-group">
 
 			
@@ -339,6 +432,8 @@
           </li>
         </ol>
       </div>
+
+
       <div class="form-actions">
         <button name="submit" type="submit" id="submit" class="action action-primary action-update">
         Activer mon inscription

@@ -11,7 +11,7 @@ Please refer to the following wiki pages in our [configuration repo](https://git
 <br/>These instructions are for developers who want to contribute or make changes to the edX source code.
 * [edX Production Stack](https://github.com/edx/configuration/wiki/edX-Production-Stack)
 <br/>Using Vagrant/Virtualbox this will setup all edX services on a single server in a production like configuration.
-* [edX Ubuntu 12.04 installation](https://github.com/edx/configuration/wiki/edX-Ubuntu-12.04-Installation)
+* [edX Ubuntu 12.04 64-bit Installation](https://github.com/edx/configuration/wiki/edX-Ubuntu-12.04-64-bit-Installation)
 <br/>This will install edX on an existing Ubuntu 12.04 server.
 
 
@@ -26,10 +26,10 @@ for details.
 Documentation
 ------------
 
-High-level documentation of the code is located in the `docs` subdirectory.
-Most (although not all) of our documentation is built using
+Documentation for developers, researchers, and course staff is located in the
+`docs` subdirectory. Documentation is built using
 [Sphinx](http://sphinx-doc.org/): you can [view the built documentation on
-ReadTheDocs](http://edx.readthedocs.org/).
+ReadTheDocs](http://docs.edx.org/).
 
 How to Contribute
 -----------------

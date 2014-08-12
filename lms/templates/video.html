@@ -13,10 +13,7 @@
     ${'data-sub="{}"'.format(sub) if sub else ''}
     ${'data-autoplay="{}"'.format(autoplay) if autoplay else ''}
 
-    ${'data-mp4-source="{}"'.format(sources.get('mp4')) if sources.get('mp4') else ''}
-    ${'data-webm-source="{}"'.format(sources.get('webm')) if sources.get('webm') else ''}
-    ${'data-ogg-source="{}"'.format(sources.get('ogv')) if sources.get('ogv') else ''}
-
+    data-sources='${sources}'
     data-save-state-url="${ajax_url}"
     data-caption-data-dir="${data_dir}"
     data-show-captions="${show_captions}"
@@ -60,7 +57,7 @@
           <div class="video-player-pre"></div>
           <section class="video-player">
               <div id="${id}"></div>
-              <h3 class="hidden">${_('ERROR: No playable video sources found!')}</h3>
+              <h3 class="hidden">${_('No playable video sources found.')}</h3>
           </section>
           <div class="video-player-post"></div>
           <section class="video-controls is-hidden">
@@ -72,20 +69,20 @@
                   </ul>
                   <div class="secondary-controls">
                       <div class="speeds menu-container">
-                          <a href="#" title="${_('Speeds')}" role="button" aria-disabled="false">
-                              <h3>${_('Speed')}</h3>
-                              <p class="active"></p>
+                          <a class="speed-button" href="#" title="${_('Speeds')}" role="button" aria-disabled="false">
+                              <span class="label">${_('Speed')}</span>
+                              <span class="value"></span>
                           </a>
-                          <ol class="video_speeds menu" role="menu"></ol>
+                          <ol class="video-speeds menu" role="menu"></ol>
                       </div>
                       <div class="volume">
-                          <a href="#" title="${_('Volume')}" role="button" aria-disabled="false"></a>
-                          <div class="volume-slider-container">
+                          <a href="#" role="button" aria-disabled="false" title="${_('Volume')}" aria-label="${_('Click on this button to mute or unmute this video or press UP or DOWN buttons to increase or decrease volume level.')}"></a>
+                          <div role="presentation" class="volume-slider-container">
                               <div class="volume-slider"></div>
                           </div>
                       </div>
                       <a href="#" class="add-fullscreen" title="${_('Fill browser')}" role="button" aria-disabled="false">${_('Fill browser')}</a>
-                      <a href="#" class="quality_control" title="${_('HD off')}" role="button" aria-disabled="false">${_('HD off')}</a>
+                      <a href="#" class="quality-control is-hidden" title="${_('HD off')}" role="button" aria-disabled="false">${_('HD off')}</a>
 
                       <div class="lang menu-container">
                         <a href="#" class="hide-subtitles" title="${_('Turn off captions')}" role="button" aria-
@@ -106,13 +103,13 @@
 
     <div class="focus_grabber last"></div>
   <ul class="wrapper-downloads">
-    % if sources.get('main'):
-        <li class="video-sources">
-            ${('<a href="%s">' + _('Download video') + '</a>') % sources.get('main')}
+    % if download_video_link:
+        <li class="video-sources video-download-button">
+            ${('<a href="%s">' + _('Download video') + '</a>') % download_video_link}
         </li>
     % endif
     % if track:
-        <li class="video-tracks">
+        <li class="video-tracks video-download-button">
           % if transcript_download_format:
             ${('<a href="%s">' + _('Download transcript') + '</a>') % track
             }
@@ -125,8 +122,10 @@
                   % else:
                   <li class="a11y-menu-item">
                   % endif
-                      <a class="a11y-menu-item-link" href="#${item['value']}" title="${_('{file_format}'.format(file_format=item['display_name']))}" data-value="${item['value']}">
-                        ${_('{file_format}'.format(file_format=item['display_name']))}
+		      ## This is necessary so we don't scrape 'display_name' as a string.
+		      <% dname = item['display_name'] %>
+                      <a class="a11y-menu-item-link" href="#${item['value']}" title="${_(dname)}" data-value="${item['value']}">
+                        ${_(dname)}
                       </a>
                   </li>
                 % endfor
@@ -136,6 +135,11 @@
             ${('<a href="%s" class="external-track">' + _('Download transcript') + '</a>') % track
             }
           % endif
+        </li>
+    % endif
+    % if handout:
+        <li class="video-handout video-download-button">
+            ${('<a href="%s" target="_blank">' + _('Download Handout') + '</a>') % handout}
         </li>
     % endif
   </ul>

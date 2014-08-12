@@ -11,11 +11,13 @@ from django.core.urlresolvers import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from edxmako.shortcuts import render_to_response
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from shoppingcart.reports import RefundReport, ItemizedPurchaseReport, UniversityRevenueShareReport, CertificateStatusReport
 from student.models import CourseEnrollment
-from .exceptions import ItemAlreadyInCartException, AlreadyEnrolledInCourseException, CourseDoesNotExistException, ReportTypeDoesNotExistException
-from .models import Order, PaidCourseRegistration, OrderItem
+from .exceptions import ItemAlreadyInCartException, AlreadyEnrolledInCourseException, CourseDoesNotExistException, ReportTypeDoesNotExistException, CouponAlreadyExistException, ItemDoesNotExistAgainstCouponException
+from .models import Order, PaidCourseRegistration, OrderItem, Coupon, CouponRedemption
 from .processors import process_postpay_callback, render_purchase_form_html
+import json
 
 log = logging.getLogger("shoppingcart")
 
@@ -44,13 +46,16 @@ def add_course_to_cart(request, course_id):
     Adds course specified by course_id to the cart.  The model function add_to_order does all the
     heavy lifting (logging, error checking, etc)
     """
+
+    assert isinstance(course_id, basestring)
     if not request.user.is_authenticated():
         log.info("Anon user trying to add course {} to cart".format(course_id))
         return HttpResponseForbidden(_('You must be logged-in to add to a shopping cart'))
     cart = Order.get_cart_for_user(request.user)
+    course_key = SlashSeparatedCourseKey.from_deprecated_string(course_id)
     # All logging from here handled by the model
     try:
-        PaidCourseRegistration.add_to_order(cart, course_id)
+        PaidCourseRegistration.add_to_order(cart, course_key)
     except CourseDoesNotExistException:
         return HttpResponseNotFound(_('The course you requested does not exist.'))
     except ItemAlreadyInCartException:
@@ -65,6 +70,16 @@ def show_cart(request):
     cart = Order.get_cart_for_user(request.user)
     total_cost = cart.total_cost
     cart_items = cart.orderitem_set.all()
+
+    # add the request protocol, domain, and port to the cart object so that any specific
+    # CC_PROCESSOR implementation can construct callback URLs, if necessary
+    cart.context = {
+        'request_domain': '{0}://{1}'.format(
+            'https' if request.is_secure() else 'http',
+            request.get_host()
+        )
+    }
+
     form_html = render_purchase_form_html(cart)
     return render_to_response("shoppingcart/list.html",
                               {'shoppingcart_items': cart_items,
@@ -77,6 +92,11 @@ def show_cart(request):
 def clear_cart(request):
     cart = Order.get_cart_for_user(request.user)
     cart.clear()
+    coupon_redemption = CouponRedemption.objects.filter(user=request.user, order=cart.id)
+    if coupon_redemption:
+        coupon_redemption.delete()
+        log.info('Coupon redemption entry removed for user {0} for order {1}'.format(request.user, cart.id))
+
     return HttpResponse('Cleared')
 
 
@@ -86,10 +106,48 @@ def remove_item(request):
     try:
         item = OrderItem.objects.get(id=item_id, status='cart')
         if item.user == request.user:
+            order_item_course_id = None
+            if hasattr(item, 'paidcourseregistration'):
+                order_item_course_id = item.paidcourseregistration.course_id
             item.delete()
+            log.info('order item {0} removed for user {1}'.format(item_id, request.user))
+            try:
+                coupon_redemption = CouponRedemption.objects.get(user=request.user, order=item.order_id)
+                if order_item_course_id == coupon_redemption.coupon.course_id:
+                    coupon_redemption.delete()
+                    log.info('Coupon "{0}" redemption entry removed for user "{1}" for order item "{2}"'
+                             .format(coupon_redemption.coupon.code, request.user, item_id))
+            except CouponRedemption.DoesNotExist:
+                log.debug('Coupon redemption does not exist for order item id={0}.'.format(item_id))
     except OrderItem.DoesNotExist:
         log.exception('Cannot remove cart OrderItem id={0}. DoesNotExist or item is already purchased'.format(item_id))
     return HttpResponse('OK')
+
+
+@login_required
+def use_coupon(request):
+    """
+    This method generate discount against valid coupon code and save its entry into coupon redemption table
+    """
+    coupon_code = request.POST["coupon_code"]
+    try:
+        coupon = Coupon.objects.get(code=coupon_code)
+    except Coupon.DoesNotExist:
+        return HttpResponseNotFound(_("Discount does not exist against coupon '{0}'.".format(coupon_code)))
+
+    if coupon.is_active:
+        try:
+            cart = Order.get_cart_for_user(request.user)
+            CouponRedemption.add_coupon_redemption(coupon, cart)
+        except CouponAlreadyExistException:
+            return HttpResponseBadRequest(_("Coupon '{0}' already used.".format(coupon_code)))
+        except ItemDoesNotExistAgainstCouponException:
+            return HttpResponseNotFound(_("Coupon '{0}' is not valid for any course in the shopping cart.".format(coupon_code)))
+
+        response = HttpResponse(json.dumps({'response': 'success'}), content_type="application/json")
+        return response
+    else:
+        return HttpResponseBadRequest(_("Coupon '{0}' is inactive.".format(coupon_code)))
 
 
 @csrf_exempt
@@ -118,6 +176,7 @@ def show_receipt(request, ordernum):
     Displays a receipt for a particular order.
     404 if order is not yet purchased or request.user != order.user
     """
+
     try:
         order = Order.objects.get(id=ordernum)
     except Order.DoesNotExist:

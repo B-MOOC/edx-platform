@@ -1,4 +1,4 @@
-## -*- coding: utf-8 -*-
+﻿## -*- coding: utf-8 -*-
 <%! from django.utils.translation import ugettext as _ %>
 <%namespace name='static' file='static_content.html'/>
 
@@ -23,6 +23,8 @@
     <meta name="path_prefix" content="${EDX_ROOT_URL}">
 
     <%static:css group='style-vendor'/>
+    <%static:css group='style-vendor-tinymce-content'/>
+    <%static:css group='style-vendor-tinymce-skin'/>
     <%static:css group='style-app'/>
     <%static:css group='style-app-extend1'/>
     <%static:css group='style-xmodule'/>
@@ -37,6 +39,12 @@
 
     <script type="text/javascript">
     window.baseUrl = "${settings.STATIC_URL}";
+    // Internet Explorer does not have built-in property 'window.location.origin',
+    // we need to create one here as some vendor code such as TinyMCE uses this.
+    if (!window.location.origin) {
+        window.location.origin = window.location.protocol + "//" + window.location.hostname
+                               + (window.location.port ? ':' + window.location.port : '');
+    }
     var require = {
         baseUrl: baseUrl,
         waitSeconds: 60,
@@ -70,8 +78,8 @@
             "backbone": "js/vendor/backbone-min",
             "backbone.associations": "js/vendor/backbone-associations-min",
             "backbone.paginator": "js/vendor/backbone.paginator.min",
-            "tinymce": "js/vendor/tiny_mce/tiny_mce",
-            "jquery.tinymce": "js/vendor/tiny_mce/jquery.tinymce",
+            "tinymce": "js/vendor/tinymce/js/tinymce/tinymce.full.min",
+            "jquery.tinymce": "js/vendor/tinymce/js/tinymce/jquery.tinymce.min",
             "xmodule": "/xmodule/xmodule",
             "xblock": "coffee/src/xblock",
             "utility": "js/src/utility",
@@ -262,7 +270,8 @@
 
     <!-- view -->
     <div class="wrapper wrapper-view">
-      <%include file="widgets/header.html" />
+        <% online_help_token = self.online_help_token() if hasattr(self, 'online_help_token') else None %>
+        <%include file="widgets/header.html" args="online_help_token=online_help_token" />
 
       <div id="page-alert"></div>
 
@@ -274,7 +283,7 @@
       <script type="text/javascript">
         require(['js/sock']);
       </script>
-      <%include file="widgets/sock.html" />
+      <%include file="widgets/sock.html" args="online_help_token=online_help_token" />
       % endif
 
       <%include file="widgets/footer.html" />
@@ -287,6 +296,4 @@
     <%block name="jsextra"></%block>
     <div class="modal-cover"></div>
   </body>
-
-  <%include file="widgets/qualaroo.html" />
 </html>

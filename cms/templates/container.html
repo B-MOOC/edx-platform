@@ -2,7 +2,8 @@
 <%!
 import json
 
-from contentstore.views.helpers import xblock_studio_url
+from xmodule.modulestore import PublishState
+from contentstore.views.helpers import xblock_studio_url, EDITING_TEMPLATES
 from django.utils.translation import ugettext as _
 %>
 <%block name="title">${_("Container")}</%block>
@@ -12,29 +13,38 @@ from django.utils.translation import ugettext as _
 <%namespace name="units" file="widgets/units.html" />
 
 
+<%block name="header_extras">
+% for template_name in EDITING_TEMPLATES:
+<script type="text/template" id="${template_name}-tpl">
+    <%static:include path="js/${template_name}.underscore" />
+</script>
+% endfor
+</%block>
+
 <%block name="jsextra">
+<link rel="stylesheet" type="text/css" href="${static.url('js/vendor/timepicker/jquery.timepicker.css')}" />
 <%
-xblock_info = {
+main_xblock_info = {
     'id': str(xblock_locator),
-    'display-name': xblock.display_name_with_default,
+    'display_name': xblock.display_name_with_default,
     'category': xblock.category,
 };
 %>
 <script type='text/javascript'>
-    require(["domReady!", "jquery", "js/models/xblock_info", "js/views/xblock",
-            "js/models/module_info", "coffee/src/views/unit",
-            "xmodule", "coffee/src/main", "xblock/cms.runtime.v1",
-            "js/views/metadata", "js/collections/metadata"],
-            function(doc, $, XBlockInfo, XBlockView) {
-                var model,
-                    view;
-                model = new XBlockInfo(${json.dumps(xblock_info) | n});
-                view = new XBlockView({
-                    el: $('.wrapper-xblock.level-page').first(),
-                    model: model,
-                    view: 'container_preview'
+    require(["domReady!", "jquery", "js/models/xblock_info", "js/views/pages/container",
+        "js/collections/component_template", "xmodule", "coffee/src/main", "xblock/cms.runtime.v1"],
+            function(doc, $, XBlockInfo, ContainerPage, ComponentTemplates, xmoduleLoader) {
+                var templates = new ComponentTemplates(${component_templates | n}, {parse: true});
+                var mainXBlockInfo = new XBlockInfo(${json.dumps(main_xblock_info) | n});
+
+                xmoduleLoader.done(function () {
+                    var view = new ContainerPage({
+                        el: $('#content'),
+                        model: mainXBlockInfo,
+                        templates: templates
+                    });
+                    view.render();
                 });
-                view.render();
             });
 </script>
 
@@ -43,13 +53,13 @@ xblock_info = {
 <%block name="content">
 
 
-<div class="wrapper-mast wrapper">
-    <header class="mast has-actions has-navigation">
+<div class="wrapper-mast wrapper" data-location="" data-display-name="" data-category="">
+    <header class="mast has-actions has-navigation has-subtitle">
         <h1 class="page-header">
-            <small class="navigation navigation-parents">
+            <small class="navigation navigation-parents subtitle">
                 % for ancestor in ancestor_xblocks:
                     <%
-                    ancestor_url = xblock_studio_url(ancestor, context_course)
+                    ancestor_url = xblock_studio_url(ancestor)
                     %>
                     % if ancestor_url:
                     <a href="${ancestor_url}"
@@ -58,14 +68,20 @@ xblock_info = {
                 % endfor
                 <a href="#" class="navigation-link navigation-current">${xblock.display_name_with_default | h}</a>
             </small>
+            <span class="page-header-title">${xblock.display_name_with_default | h}</span>
         </h1>
 
         <nav class="nav-actions">
             <h3 class="sr">${_("Page Actions")}</h3>
             <ul>
-                <li class="sr nav-item">
-                    ${_("No Actions")}
+                % if not unit_publish_state == 'public':
+                <li class="action-item action-edit nav-item">
+                    <a href="#" class="button edit-button action-button">
+                        <i class="icon-pencil"></i>
+                        <span class="action-button-text">${_("Edit")}</span>
+                    </a>
                 </li>
+                % endif
             </ul>
         </nav>
     </header>
@@ -76,27 +92,51 @@ xblock_info = {
         <section class="content-area">
 
             <article class="content-primary window">
-                <section class="wrapper-xblock level-page" data-locator="${xblock_locator}"/>
+                <section class="wrapper-xblock level-page is-hidden studio-xblock-wrapper" data-locator="${xblock_locator}" data-course-key="${xblock_locator.course_key}">
+                </section>
+                <div class="ui-loading">
+                    <p><span class="spin"><i class="icon-refresh"></i></span> <span class="copy">${_("Loading...")}</span></p>
+                </div>
             </article>
             <aside class="content-supplementary" role="complimentary">
-                <div class="bit-publishing">
-                    <h3 class="title-3">${_("Publishing Status")}</h3>
-                    <p class="copy">${_('This content is published with unit {unit_name}.').format(
-                        unit_name=u'<a href="{unit_address}">{unit_display_name}</a>'.format(
-                            unit_address=xblock_studio_url(unit),
-                            unit_display_name=unit.display_name_with_default,
-                        )
-                    )}</p>
-                </div>
+                % if unit:
+                  % if unit_publish_state == PublishState.public:
+                    <div class="bit-publishing published">
+                      <h3 class="title pub-status"><span class="sr">${_("Publishing Status")} </span>${_("Published")}</h3>
+                      <p class="copy">
+                          <%
+                          unit_link=u'<a href="{unit_address}">{unit_display_name}</a>'.format(
+                              unit_address=xblock_studio_url(unit),
+                              unit_display_name=unit.display_name_with_default,
+                          )
+                          %>
+                          ${_('To make changes to the content of this page, you need to edit unit {unit_link} as a draft.'
+                                  ).format(unit_link=unit_link)}
+                      </p>
+                    </div>
+                  % else:
+                    <div class="bit-publishing draft">
+                        <h3 class="title pub-status"><span class="sr">${_("Publishing Status")} </span>${_("Draft")}</h3>
+                        <p class="copy">
+                            <%
+                            unit_link=u'<a href="{unit_address}">{unit_display_name}</a>'.format(
+                                unit_address=xblock_studio_url(unit),
+                                unit_display_name=unit.display_name_with_default,
+                            )
+                            %>
+                            ${_('You can edit the content of this page, and your changes will be published with unit {unit_link}.').format(unit_link=unit_link)}
+                        </p>
+                    </div>
+                  % endif
+                % endif
                 <div class="bit">
                     <h3 class="title-3">${_("What can I do on this page?")}</h3>
                     <ul class="list-details">
-                        <li class="item-detail">${_("You can view course components that contain other components on this page. In the case of experiment blocks, this allows you to confirm that you have properly configured your experiment groups.")}</li>
+                        <li class="item-detail">${_("You can view and edit course components that contain other components on this page. In the case of experiment blocks, this allows you to confirm that you have properly configured your experiment groups and make changes to existing content.")}</li>
                     </ul>
                 </div>
             </aside>
         </section>
     </div>
 </div>
-
 </%block>

@@ -3,7 +3,8 @@ PageObjects related to the AcidBlock
 """
 
 from bok_choy.page_object import PageObject
-from bok_choy.promise import EmptyPromise, BrokenPromise
+from bok_choy.promise import Promise
+from .utils import wait_for_xblock_initialization
 
 class AcidView(PageObject):
     """
@@ -24,9 +25,12 @@ class AcidView(PageObject):
         self.context_selector = context_selector
 
     def is_browser_on_page(self):
+
+        # First make sure that an element with the view-container class is present on the page,
+        # and then wait to make sure that the xblock has finished initializing.
         return (
             self.q(css='{} .acid-block'.format(self.context_selector)).present and
-            self.browser.execute_script("return $({!r}).data('initialized')".format(self.context_selector))
+            wait_for_xblock_initialization(self, self.context_selector)
         )
 
     def test_passed(self, test_selector):

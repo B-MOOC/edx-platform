@@ -1,23 +1,24 @@
 import logging
 import json
 
-from django.test.utils import override_settings
 from django.test.client import Client, RequestFactory
+from django.test.utils import override_settings
 from django.contrib.auth.models import User
-from student.tests.factories import CourseEnrollmentFactory, UserFactory
-from xmodule.modulestore.tests.factories import CourseFactory
-from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
-from django.core.urlresolvers import reverse
 from django.core.management import call_command
-from util.testing import UrlResetMixin
-from django_comment_common.models import Role
-from django_comment_common.utils import seed_permissions_roles
-from django_comment_client.base import views
-from django_comment_client.tests.unicode import UnicodeTestMixin
+from django.core.urlresolvers import reverse
+from mock import patch, ANY
+from nose.tools import assert_true, assert_equal  # pylint: disable=E0611
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 
 from courseware.tests.modulestore_config import TEST_DATA_MIXED_MODULESTORE
-from nose.tools import assert_true, assert_equal  # pylint: disable=E0611
-from mock import patch, ANY
+from django_comment_client.base import views
+from django_comment_client.tests.unicode import UnicodeTestMixin
+from django_comment_common.models import Role, FORUM_ROLE_STUDENT
+from django_comment_common.utils import seed_permissions_roles
+from student.tests.factories import CourseEnrollmentFactory, UserFactory
+from util.testing import UrlResetMixin
+from xmodule.modulestore.tests.factories import CourseFactory
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 
 log = logging.getLogger(__name__)
 
@@ -40,14 +41,14 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
         # Patching the ENABLE_DISCUSSION_SERVICE value affects the contents of urls.py,
         # so we need to call super.setUp() which reloads urls.py (because
         # of the UrlResetMixin)
-        super(ViewsTestCase, self).setUp()
+        super(ViewsTestCase, self).setUp(create_user=False)
 
         # create a course
         self.course = CourseFactory.create(org='MITx', course='999',
                                            display_name='Robot Super Course')
         self.course_id = self.course.id
         # seed the forums permissions and roles
-        call_command('seed_permissions_roles', self.course_id)
+        call_command('seed_permissions_roles', self.course_id.to_deprecated_string())
 
         # Patch the comment client user save method so it does not try
         # to create a new cc user when creating a django user
@@ -106,7 +107,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
                   "title": ["Hello"]
                   }
         url = reverse('create_thread', kwargs={'commentable_id': 'i4x-MITx-999-course-Robot_Super_Course',
-                                               'course_id': self.course_id})
+                                               'course_id': self.course_id.to_deprecated_string()})
         response = self.client.post(url, data=thread)
         assert_true(mock_request.called)
         mock_request.assert_called_with(
@@ -117,7 +118,8 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
                 'anonymous_to_peers': False, 'user_id': 1,
                 'title': u'Hello',
                 'commentable_id': u'i4x-MITx-999-course-Robot_Super_Course',
-                'anonymous': False, 'course_id': u'MITx/999/Robot_Super_Course',
+                'anonymous': False,
+                'course_id': u'MITx/999/Robot_Super_Course',
             },
             params={'request_id': ANY},
             headers=ANY,
@@ -134,7 +136,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
         request = RequestFactory().post("dummy_url", {"id": test_comment_id})
         request.user = self.student
         request.view_name = "delete_comment"
-        response = views.delete_comment(request, course_id=self.course.id, comment_id=test_comment_id)
+        response = views.delete_comment(request, course_id=self.course.id.to_deprecated_string(), comment_id=test_comment_id)
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_request.called)
@@ -172,7 +174,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_thread_no_title(self, mock_request):
         self._test_request_error(
             "create_thread",
-            {"commentable_id": "dummy", "course_id": self.course_id},
+            {"commentable_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": "foo"},
             mock_request
         )
@@ -180,7 +182,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_thread_empty_title(self, mock_request):
         self._test_request_error(
             "create_thread",
-            {"commentable_id": "dummy", "course_id": self.course_id},
+            {"commentable_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": "foo", "title": " "},
             mock_request
         )
@@ -188,7 +190,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_thread_no_body(self, mock_request):
         self._test_request_error(
             "create_thread",
-            {"commentable_id": "dummy", "course_id": self.course_id},
+            {"commentable_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"title": "foo"},
             mock_request
         )
@@ -196,7 +198,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_thread_empty_body(self, mock_request):
         self._test_request_error(
             "create_thread",
-            {"commentable_id": "dummy", "course_id": self.course_id},
+            {"commentable_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": " ", "title": "foo"},
             mock_request
         )
@@ -204,7 +206,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_update_thread_no_title(self, mock_request):
         self._test_request_error(
             "update_thread",
-            {"thread_id": "dummy", "course_id": self.course_id},
+            {"thread_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": "foo"},
             mock_request
         )
@@ -212,7 +214,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_update_thread_empty_title(self, mock_request):
         self._test_request_error(
             "update_thread",
-            {"thread_id": "dummy", "course_id": self.course_id},
+            {"thread_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": "foo", "title": " "},
             mock_request
         )
@@ -220,7 +222,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_update_thread_no_body(self, mock_request):
         self._test_request_error(
             "update_thread",
-            {"thread_id": "dummy", "course_id": self.course_id},
+            {"thread_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"title": "foo"},
             mock_request
         )
@@ -228,7 +230,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_update_thread_empty_body(self, mock_request):
         self._test_request_error(
             "update_thread",
-            {"thread_id": "dummy", "course_id": self.course_id},
+            {"thread_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": " ", "title": "foo"},
             mock_request
         )
@@ -236,7 +238,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_comment_no_body(self, mock_request):
         self._test_request_error(
             "create_comment",
-            {"thread_id": "dummy", "course_id": self.course_id},
+            {"thread_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {},
             mock_request
         )
@@ -244,7 +246,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_comment_empty_body(self, mock_request):
         self._test_request_error(
             "create_comment",
-            {"thread_id": "dummy", "course_id": self.course_id},
+            {"thread_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": " "},
             mock_request
         )
@@ -252,7 +254,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_sub_comment_no_body(self, mock_request):
         self._test_request_error(
             "create_sub_comment",
-            {"comment_id": "dummy", "course_id": self.course_id},
+            {"comment_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {},
             mock_request
         )
@@ -260,7 +262,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_create_sub_comment_empty_body(self, mock_request):
         self._test_request_error(
             "create_sub_comment",
-            {"comment_id": "dummy", "course_id": self.course_id},
+            {"comment_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": " "},
             mock_request
         )
@@ -268,7 +270,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_update_comment_no_body(self, mock_request):
         self._test_request_error(
             "update_comment",
-            {"comment_id": "dummy", "course_id": self.course_id},
+            {"comment_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {},
             mock_request
         )
@@ -276,7 +278,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
     def test_update_comment_empty_body(self, mock_request):
         self._test_request_error(
             "update_comment",
-            {"comment_id": "dummy", "course_id": self.course_id},
+            {"comment_id": "dummy", "course_id": self.course_id.to_deprecated_string()},
             {"body": " "},
             mock_request
         )
@@ -289,7 +291,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
         response = self.client.post(
             reverse(
                 "update_comment",
-                kwargs={"course_id": self.course_id, "comment_id": comment_id}
+                kwargs={"course_id": self.course_id.to_deprecated_string(), "comment_id": comment_id}
             ),
             data={"body": updated_body}
         )
@@ -334,7 +336,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
             "read": False,
             "comments_count": 0,
         })
-        url = reverse('flag_abuse_for_thread', kwargs={'thread_id': '518d4237b023791dca00000d', 'course_id': self.course_id})
+        url = reverse('flag_abuse_for_thread', kwargs={'thread_id': '518d4237b023791dca00000d', 'course_id': self.course_id.to_deprecated_string()})
         response = self.client.post(url)
         assert_true(mock_request.called)
 
@@ -403,7 +405,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
             "read": False,
             "comments_count": 0
         })
-        url = reverse('un_flag_abuse_for_thread', kwargs={'thread_id': '518d4237b023791dca00000d', 'course_id': self.course_id})
+        url = reverse('un_flag_abuse_for_thread', kwargs={'thread_id': '518d4237b023791dca00000d', 'course_id': self.course_id.to_deprecated_string()})
         response = self.client.post(url)
         assert_true(mock_request.called)
 
@@ -466,7 +468,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
             "type": "comment",
             "endorsed": False
         })
-        url = reverse('flag_abuse_for_comment', kwargs={'comment_id': '518d4237b023791dca00000d', 'course_id': self.course_id})
+        url = reverse('flag_abuse_for_comment', kwargs={'comment_id': '518d4237b023791dca00000d', 'course_id': self.course_id.to_deprecated_string()})
         response = self.client.post(url)
         assert_true(mock_request.called)
 
@@ -529,7 +531,7 @@ class ViewsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSetupMixin):
             "type": "comment",
             "endorsed": False
         })
-        url = reverse('un_flag_abuse_for_comment', kwargs={'comment_id': '518d4237b023791dca00000d', 'course_id': self.course_id})
+        url = reverse('un_flag_abuse_for_comment', kwargs={'comment_id': '518d4237b023791dca00000d', 'course_id': self.course_id.to_deprecated_string()})
         response = self.client.post(url)
         assert_true(mock_request.called)
 
@@ -586,7 +588,7 @@ class ViewPermissionsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSet
         self._set_mock_request_data(mock_request, {})
         self.client.login(username=self.student.username, password=self.password)
         response = self.client.post(
-            reverse("pin_thread", kwargs={"course_id": self.course.id, "thread_id": "dummy"})
+            reverse("pin_thread", kwargs={"course_id": self.course.id.to_deprecated_string(), "thread_id": "dummy"})
         )
         self.assertEqual(response.status_code, 401)
 
@@ -594,7 +596,7 @@ class ViewPermissionsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSet
         self._set_mock_request_data(mock_request, {})
         self.client.login(username=self.moderator.username, password=self.password)
         response = self.client.post(
-            reverse("pin_thread", kwargs={"course_id": self.course.id, "thread_id": "dummy"})
+            reverse("pin_thread", kwargs={"course_id": self.course.id.to_deprecated_string(), "thread_id": "dummy"})
         )
         self.assertEqual(response.status_code, 200)
 
@@ -602,7 +604,7 @@ class ViewPermissionsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSet
         self._set_mock_request_data(mock_request, {})
         self.client.login(username=self.student.username, password=self.password)
         response = self.client.post(
-            reverse("un_pin_thread", kwargs={"course_id": self.course.id, "thread_id": "dummy"})
+            reverse("un_pin_thread", kwargs={"course_id": self.course.id.to_deprecated_string(), "thread_id": "dummy"})
         )
         self.assertEqual(response.status_code, 401)
 
@@ -610,7 +612,7 @@ class ViewPermissionsTestCase(UrlResetMixin, ModuleStoreTestCase, MockRequestSet
         self._set_mock_request_data(mock_request, {})
         self.client.login(username=self.moderator.username, password=self.password)
         response = self.client.post(
-            reverse("un_pin_thread", kwargs={"course_id": self.course.id, "thread_id": "dummy"})
+            reverse("un_pin_thread", kwargs={"course_id": self.course.id.to_deprecated_string(), "thread_id": "dummy"})
         )
         self.assertEqual(response.status_code, 200)
 
@@ -629,7 +631,7 @@ class CreateThreadUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin, MockReq
         request = RequestFactory().post("dummy_url", {"body": text, "title": text})
         request.user = self.student
         request.view_name = "create_thread"
-        response = views.create_thread(request, course_id=self.course.id, commentable_id="test_commentable")
+        response = views.create_thread(request, course_id=self.course.id.to_deprecated_string(), commentable_id="test_commentable")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_request.called)
@@ -654,7 +656,7 @@ class UpdateThreadUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin, MockReq
         request = RequestFactory().post("dummy_url", {"body": text, "title": text})
         request.user = self.student
         request.view_name = "update_thread"
-        response = views.update_thread(request, course_id=self.course.id, thread_id="dummy_thread_id")
+        response = views.update_thread(request, course_id=self.course.id.to_deprecated_string(), thread_id="dummy_thread_id")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_request.called)
@@ -678,7 +680,7 @@ class CreateCommentUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin, MockRe
         request = RequestFactory().post("dummy_url", {"body": text})
         request.user = self.student
         request.view_name = "create_comment"
-        response = views.create_comment(request, course_id=self.course.id, thread_id="dummy_thread_id")
+        response = views.create_comment(request, course_id=self.course.id.to_deprecated_string(), thread_id="dummy_thread_id")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_request.called)
@@ -702,7 +704,7 @@ class UpdateCommentUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin, MockRe
         request = RequestFactory().post("dummy_url", {"body": text})
         request.user = self.student
         request.view_name = "update_comment"
-        response = views.update_comment(request, course_id=self.course.id, comment_id="dummy_comment_id")
+        response = views.update_comment(request, course_id=self.course.id.to_deprecated_string(), comment_id="dummy_comment_id")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_request.called)
@@ -726,8 +728,90 @@ class CreateSubCommentUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin, Moc
         request = RequestFactory().post("dummy_url", {"body": text})
         request.user = self.student
         request.view_name = "create_sub_comment"
-        response = views.create_sub_comment(request, course_id=self.course.id, comment_id="dummy_comment_id")
+        response = views.create_sub_comment(request, course_id=self.course.id.to_deprecated_string(), comment_id="dummy_comment_id")
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_request.called)
         self.assertEqual(mock_request.call_args[1]["data"]["body"], text)
+
+
+@override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
+class UsersEndpointTestCase(ModuleStoreTestCase, MockRequestSetupMixin):
+
+    def set_post_counts(self, mock_request, threads_count=1, comments_count=1):
+        """
+        sets up a mock response from the comments service for getting post counts for our other_user
+        """
+        self._set_mock_request_data(mock_request, {
+            "threads_count": threads_count,
+            "comments_count": comments_count,
+        })
+
+    def setUp(self):
+        self.course = CourseFactory.create()
+        seed_permissions_roles(self.course.id)
+        self.student = UserFactory.create()
+        self.enrollment = CourseEnrollmentFactory(user=self.student, course_id=self.course.id)
+        self.other_user = UserFactory.create(username="other")
+        CourseEnrollmentFactory(user=self.other_user, course_id=self.course.id)
+
+    def make_request(self, method='get', course_id=None, **kwargs):
+        course_id = course_id or self.course.id
+        request = getattr(RequestFactory(), method)("dummy_url", kwargs)
+        request.user = self.student
+        request.view_name = "users"
+        return views.users(request, course_id=course_id.to_deprecated_string())
+
+    @patch('lms.lib.comment_client.utils.requests.request')
+    def test_finds_exact_match(self, mock_request):
+        self.set_post_counts(mock_request)
+        response = self.make_request(username="other")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            json.loads(response.content)["users"],
+            [{"id": self.other_user.id, "username": self.other_user.username}]
+        )
+
+    @patch('lms.lib.comment_client.utils.requests.request')
+    def test_finds_no_match(self, mock_request):
+        self.set_post_counts(mock_request)
+        response = self.make_request(username="othor")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)["users"], [])
+
+    def test_requires_GET(self):
+        response = self.make_request(method='post', username="other")
+        self.assertEqual(response.status_code, 405)
+
+    def test_requires_username_param(self):
+        response = self.make_request()
+        self.assertEqual(response.status_code, 400)
+        content = json.loads(response.content)
+        self.assertIn("errors", content)
+        self.assertNotIn("users", content)
+
+    def test_course_does_not_exist(self):
+        course_id = SlashSeparatedCourseKey.from_deprecated_string("does/not/exist")
+        response = self.make_request(course_id=course_id, username="other")
+
+        self.assertEqual(response.status_code, 404)
+        content = json.loads(response.content)
+        self.assertIn("errors", content)
+        self.assertNotIn("users", content)
+
+    def test_requires_requestor_enrolled_in_course(self):
+        # unenroll self.student from the course.
+        self.enrollment.delete()
+
+        response = self.make_request(username="other")
+        self.assertEqual(response.status_code, 404)
+        content = json.loads(response.content)
+        self.assertTrue(content.has_key("errors"))
+        self.assertFalse(content.has_key("users"))
+
+    @patch('lms.lib.comment_client.utils.requests.request')
+    def test_requires_matched_user_has_forum_content(self, mock_request):
+        self.set_post_counts(mock_request, 0, 0)
+        response = self.make_request(username="other")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)["users"], [])

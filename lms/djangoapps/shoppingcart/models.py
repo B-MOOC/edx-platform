@@ -21,19 +21,17 @@ from django.core.urlresolvers import reverse
 from model_utils.managers import InheritanceManager
 
 from xmodule.modulestore.django import modulestore
-from xmodule.course_module import CourseDescriptor
-from xmodule.modulestore.exceptions import ItemNotFoundError
 
 from course_modes.models import CourseMode
 from edxmako.shortcuts import render_to_string
-from student.views import course_from_id
 from student.models import CourseEnrollment, unenroll_done
 from util.query import use_read_replica_if_available
+from xmodule_django.models import CourseKeyField
 
 from verify_student.models import SoftwareSecurePhotoVerification
 
 from .exceptions import (InvalidCartItem, PurchasedCallbackException, ItemAlreadyInCartException,
-                         AlreadyEnrolledInCourseException, CourseDoesNotExistException)
+                         AlreadyEnrolledInCourseException, CourseDoesNotExistException, CouponAlreadyExistException, ItemDoesNotExistAgainstCouponException)
 
 from microsite_configuration import microsite
 
@@ -219,6 +217,7 @@ class OrderItem(models.Model):
     status = models.CharField(max_length=32, default='cart', choices=ORDER_STATUSES, db_index=True)
     qty = models.IntegerField(default=1)
     unit_cost = models.DecimalField(default=0.0, decimal_places=2, max_digits=30)
+    list_price = models.DecimalField(decimal_places=2, max_digits=30, null=True)
     line_desc = models.CharField(default="Misc. Item", max_length=1024)
     currency = models.CharField(default="usd", max_length=8)  # lower case ISO currency codes
     fulfilled_time = models.DateTimeField(null=True, db_index=True)
@@ -306,11 +305,83 @@ class OrderItem(models.Model):
         return ''
 
 
+class CourseRegistrationCode(models.Model):
+    """
+    This table contains registration codes
+    With registration code, a user can register for a course for free
+    """
+    code = models.CharField(max_length=32, db_index=True)
+    course_id = CourseKeyField(max_length=255, db_index=True)
+    transaction_group_name = models.CharField(max_length=255, db_index=True, null=True, blank=True)
+    created_by = models.ForeignKey(User, related_name='created_by_user')
+    created_at = models.DateTimeField(default=datetime.now(pytz.utc))
+    redeemed_by = models.ForeignKey(User, null=True, related_name='redeemed_by_user')
+    redeemed_at = models.DateTimeField(default=datetime.now(pytz.utc), null=True)
+
+
+class Coupon(models.Model):
+    """
+    This table contains coupon codes
+    A user can get a discount offer on course if provide coupon code
+    """
+    code = models.CharField(max_length=32, db_index=True)
+    description = models.CharField(max_length=255, null=True, blank=True)
+    course_id = CourseKeyField(max_length=255)
+    percentage_discount = models.IntegerField(default=0)
+    created_by = models.ForeignKey(User)
+    created_at = models.DateTimeField(default=datetime.now(pytz.utc))
+    is_active = models.BooleanField(default=True)
+
+
+class CouponRedemption(models.Model):
+    """
+    This table contain coupon redemption info
+    """
+    order = models.ForeignKey(Order, db_index=True)
+    user = models.ForeignKey(User, db_index=True)
+    coupon = models.ForeignKey(Coupon, db_index=True)
+
+    @classmethod
+    def get_discount_price(cls, percentage_discount, value):
+        """
+        return discounted price against coupon
+        """
+        discount = Decimal("{0:.2f}".format(Decimal(percentage_discount / 100.00) * value))
+        return value - discount
+
+    @classmethod
+    def add_coupon_redemption(cls, coupon, order):
+        """
+        add coupon info into coupon_redemption model
+        """
+        cart_items = order.orderitem_set.all().select_subclasses()
+
+        for item in cart_items:
+            if getattr(item, 'course_id'):
+                if item.course_id == coupon.course_id:
+                    coupon_redemption, created = cls.objects.get_or_create(order=order, user=order.user, coupon=coupon)
+                    if not created:
+                        log.exception("Coupon '{0}' already exist for user '{1}' against order id '{2}'"
+                                      .format(coupon.code, order.user.username, order.id))
+                        raise CouponAlreadyExistException
+
+                    discount_price = cls.get_discount_price(coupon.percentage_discount, item.unit_cost)
+                    item.list_price = item.unit_cost
+                    item.unit_cost = discount_price
+                    item.save()
+                    log.info("Discount generated for user {0} against order id '{1}' "
+                             .format(order.user.username, order.id))
+                    return coupon_redemption
+
+        log.warning("Course item does not exist for coupon '{0}'".format(coupon.code))
+        raise ItemDoesNotExistAgainstCouponException
+
+
 class PaidCourseRegistration(OrderItem):
     """
     This is an inventory item for paying for a course registration
     """
-    course_id = models.CharField(max_length=128, db_index=True)
+    course_id = CourseKeyField(max_length=128, db_index=True)
     mode = models.SlugField(default=CourseMode.DEFAULT_MODE_SLUG)
 
     @classmethod
@@ -322,6 +393,19 @@ class PaidCourseRegistration(OrderItem):
                              for item in order.orderitem_set.all().select_subclasses("paidcourseregistration")]
 
     @classmethod
+    def get_total_amount_of_purchased_item(cls, course_key):
+        """
+        This will return the total amount of money that a purchased course generated
+        """
+        total_cost = 0
+        result = cls.objects.filter(course_id=course_key, status='purchased').aggregate(total=Sum('unit_cost', field='qty * unit_cost'))  # pylint: disable=E1101
+
+        if result['total'] is not None:
+            total_cost = result['total']
+
+        return total_cost
+
+    @classmethod
     @transaction.commit_on_success
     def add_to_order(cls, order, course_id, mode_slug=CourseMode.DEFAULT_MODE_SLUG, cost=None, currency=None):
         """
@@ -331,10 +415,9 @@ class PaidCourseRegistration(OrderItem):
         Returns the order item
         """
         # First a bunch of sanity checks
-        try:
-            course = course_from_id(course_id)  # actually fetch the course to make sure it exists, use this to
+        course = modulestore().get_course(course_id)  # actually fetch the course to make sure it exists, use this to
                                                 # throw errors if it doesn't
-        except ItemNotFoundError:
+        if not course:
             log.error("User {} tried to add non-existent course {} to cart id {}"
                       .format(order.user.email, course_id, order.id))
             raise CourseDoesNotExistException
@@ -344,7 +427,7 @@ class PaidCourseRegistration(OrderItem):
                         .format(order.user.email, course_id, order.id))
             raise ItemAlreadyInCartException
 
-        if CourseEnrollment.is_enrolled(user=order.user, course_id=course_id):
+        if CourseEnrollment.is_enrolled(user=order.user, course_key=course_id):
             log.warning("User {} trying to add course {} to cart id {}, already registered"
                         .format(order.user.email, course_id, order.id))
             raise AlreadyEnrolledInCourseException
@@ -367,7 +450,8 @@ class PaidCourseRegistration(OrderItem):
         item.mode = course_mode.slug
         item.qty = 1
         item.unit_cost = cost
-        item.line_desc = u'Registration for Course: {0}'.format(course.display_name_with_default)
+        item.line_desc = _(u'Registration for Course: {course_name}').format(
+            course_name=course.display_name_with_default)
         item.currency = currency
         order.currency = currency
         item.report_comments = item.csv_report_comments
@@ -384,18 +468,11 @@ class PaidCourseRegistration(OrderItem):
         in CourseEnrollmentAllowed will the user be allowed to enroll.  Otherwise requiring payment
         would in fact be quite silly since there's a clear back door.
         """
-        try:
-            course_loc = CourseDescriptor.id_to_location(self.course_id)
-            course_exists = modulestore().has_item(self.course_id, course_loc)
-        except ValueError:
+        if not modulestore().has_course(self.course_id):
             raise PurchasedCallbackException(
                 "The customer purchased Course {0}, but that course doesn't exist!".format(self.course_id))
 
-        if not course_exists:
-            raise PurchasedCallbackException(
-                "The customer purchased Course {0}, but that course doesn't exist!".format(self.course_id))
-
-        CourseEnrollment.enroll(user=self.user, course_id=self.course_id, mode=self.mode)
+        CourseEnrollment.enroll(user=self.user, course_key=self.course_id, mode=self.mode)
 
         log.info("Enrolled {0} in paid course {1}, paid ${2}"
                  .format(self.user.email, self.course_id, self.line_cost))  # pylint: disable=E1101
@@ -429,18 +506,19 @@ class PaidCourseRegistrationAnnotation(models.Model):
     And unfortunately we didn't have the concept of a "SKU" or stock item where we could keep this association,
     so this is to retrofit it.
     """
-    course_id = models.CharField(unique=True, max_length=128, db_index=True)
+    course_id = CourseKeyField(unique=True, max_length=128, db_index=True)
     annotation = models.TextField(null=True)
 
     def __unicode__(self):
-        return u"{} : {}".format(self.course_id, self.annotation)
+        # pylint: disable=no-member
+        return u"{} : {}".format(self.course_id.to_deprecated_string(), self.annotation)
 
 
 class CertificateItem(OrderItem):
     """
     This is an inventory item for purchasing certificates
     """
-    course_id = models.CharField(max_length=128, db_index=True)
+    course_id = CourseKeyField(max_length=128, db_index=True)
     course_enrollment = models.ForeignKey(CourseEnrollment)
     mode = models.SlugField()
 
@@ -477,19 +555,19 @@ class CertificateItem(OrderItem):
                                                                                                        user_email=course_enrollment.user.email,
                                                                                                        order_number=order_number)
         to_email = [settings.PAYMENT_SUPPORT_EMAIL]
-        from_email = [microsite.get_value(
-            'payment_support_email',
-            settings.PAYMENT_SUPPORT_EMAIL
-        )]
+        from_email = microsite.get_value('payment_support_email', settings.PAYMENT_SUPPORT_EMAIL)
         try:
             send_mail(subject, message, from_email, to_email, fail_silently=False)
-        except (smtplib.SMTPException, BotoServerError):
-            err_str = 'Failed sending email to billing request a refund for verified certiciate (User {user}, Course {course}, CourseEnrollmentID {ce_id}, Order #{order})'
+        except Exception as exception:  # pylint: disable=broad-except
+            err_str = ('Failed sending email to billing to request a refund for verified certificate'
+                       ' (User {user}, Course {course}, CourseEnrollmentID {ce_id}, Order #{order})\n{exception}')
             log.error(err_str.format(
                 user=course_enrollment.user,
                 course=course_enrollment.course_id,
                 ce_id=course_enrollment.id,
-                order=order_number))
+                order=order_number,
+                exception=exception,
+            ))
 
         return target_cert
 
@@ -533,7 +611,7 @@ class CertificateItem(OrderItem):
         item.status = order.status
         item.qty = 1
         item.unit_cost = cost
-        course_name = course_from_id(course_id).display_name
+        course_name = modulestore().get_course(course_id).display_name
         item.line_desc = _("Certificate of Achievement, {mode_name} for course {course}").format(mode_name=mode_info.name,
                                                                                                  course=course_name)
         item.currency = currency
@@ -549,7 +627,7 @@ class CertificateItem(OrderItem):
         try:
             verification_attempt = SoftwareSecurePhotoVerification.active_for_user(self.course_enrollment.user)
             verification_attempt.submit()
-        except Exception as e:
+        except Exception:
             log.exception(
                 "Could not submit verification attempt for enrollment {}".format(self.course_enrollment)
             )
@@ -565,14 +643,19 @@ class CertificateItem(OrderItem):
 
     @property
     def single_item_receipt_context(self):
-        course = course_from_id(self.course_id)
+        course = modulestore().get_course(self.course_id)
         return {
-            "course_id" : self.course_id,
+            "course_id": self.course_id,
             "course_name": course.display_name_with_default,
             "course_org": course.display_org_with_default,
             "course_num": course.display_number_with_default,
             "course_start_date_text": course.start_date_text,
             "course_has_started": course.start > datetime.today().replace(tzinfo=pytz.utc),
+            "course_root_url": reverse(
+                'course_root',
+                kwargs={'course_id': self.course_id.to_deprecated_string()}  # pylint: disable=no-member
+            ),
+            "dashboard_url": reverse('dashboard'),
         }
 
     @property

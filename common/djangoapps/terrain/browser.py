@@ -16,8 +16,8 @@ import requests
 from base64 import encodestring
 from json import dumps
 
-from pymongo import MongoClient
 import xmodule.modulestore.django
+from xmodule.modulestore import ModuleStoreEnum
 from xmodule.contentstore.django import _CONTENTSTORE
 
 # There is an import issue when using django-staticfiles with lettuce
@@ -41,7 +41,7 @@ LOGGER = getLogger(__name__)
 LOGGER.info("Loading the lettuce acceptance testing terrain file...")
 
 MAX_VALID_BROWSER_ATTEMPTS = 20
-GLOBAL_SCRIPT_TIMEOUT = 20
+GLOBAL_SCRIPT_TIMEOUT = 60
 
 
 def get_saucelabs_username_and_key():
@@ -163,6 +163,16 @@ def reset_data(scenario):
     world.absorb({}, 'scenario_dict')
 
 
+@before.each_scenario
+def configure_screenshots(scenario):
+    """
+    Before each scenario, turn off automatic screenshots.
+
+    Args: str, scenario. Name of current scenario.
+    """
+    world.auto_capture_screenshots = False
+
+
 @after.each_scenario
 def clear_data(scenario):
     world.spew('scenario_dict')
@@ -175,13 +185,26 @@ def reset_databases(scenario):
     whereas modulestore data is in unique collection names.  This data is created implicitly during the scenarios.
     If no data is created during the test, these lines equivilently do nothing.
     '''
-    mongo = MongoClient()
-    mongo.drop_database(settings.CONTENTSTORE['DOC_STORE_CONFIG']['db'])
+    xmodule.modulestore.django.modulestore()._drop_database()  # pylint: disable=protected-access
+    xmodule.modulestore.django.clear_existing_modulestores()
     _CONTENTSTORE.clear()
 
-    modulestore = xmodule.modulestore.django.editable_modulestore()
-    modulestore.collection.drop()
-    xmodule.modulestore.django.clear_existing_modulestores()
+
+@world.absorb
+def capture_screenshot(image_name):
+    """
+    Capture a screenshot outputting it to a defined directory.
+    This function expects only the name of the file. It will generate
+    the full path of the output screenshot.
+
+    If the name contains spaces, they ill be converted to underscores.
+    """
+    output_dir = '{}/log/auto_screenshots'.format(settings.TEST_ROOT)
+    image_name = '{}/{}.png'.format(output_dir, image_name.replace(' ', '_'))
+    try:
+        world.browser.driver.save_screenshot(image_name)
+    except WebDriverException:
+        LOGGER.error("Could not capture a screenshot '{}'".format(image_name))
 
 
 @after.each_scenario
@@ -196,6 +219,47 @@ def screenshot_on_error(scenario):
             world.browser.driver.save_screenshot(image_name)
         except WebDriverException:
             LOGGER.error('Could not capture a screenshot')
+
+
+def capture_screenshot_for_step(step, when):
+    """
+    Useful method for debugging acceptance tests that are run in Vagrant.
+    This method runs automatically before and after each step of an acceptance
+    test scenario. The variable:
+
+         world.auto_capture_screenshots
+
+    either enables or disabled the taking of screenshots. To change the
+    variable there is a convenient step defined:
+
+        I (enable|disable) auto screenshots
+
+    If you just want to capture a single screenshot at a desired point in code,
+    you should use the method:
+
+        world.capture_screenshot("image_name")
+    """
+    if world.auto_capture_screenshots:
+        scenario_num = step.scenario.feature.scenarios.index(step.scenario) + 1
+        step_num = step.scenario.steps.index(step) + 1
+        step_func_name = step.defined_at.function.func_name
+        image_name = "{prefix:03d}__{num:03d}__{name}__{postfix}".format(
+            prefix=scenario_num,
+            num=step_num,
+            name=step_func_name,
+            postfix=when
+        )
+        world.capture_screenshot(image_name)
+
+
+@before.each_step
+def before_each_step(step):
+    capture_screenshot_for_step(step, '1_before')
+
+
+@after.each_step
+def after_each_step(step):
+    capture_screenshot_for_step(step, '2_after')
 
 
 @after.harvest

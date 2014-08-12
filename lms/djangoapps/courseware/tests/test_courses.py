@@ -4,21 +4,22 @@ Tests for course access
 """
 import mock
 
-from django.http import Http404
 from django.test.utils import override_settings
 from student.tests.factories import UserFactory
-from xmodule.modulestore.django import get_default_store_name_for_current_request
+import xmodule.modulestore.django as store_django
+from xmodule.modulestore import ModuleStoreEnum
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import CourseFactory
 from xmodule.tests.xml import factories as xml
 from xmodule.tests.xml import XModuleXmlImportTest
 
 from courseware.courses import (
-    get_course_by_id, get_course, get_cms_course_link, course_image_url,
-    get_course_info_section, get_course_about_section
+    get_course_by_id, get_cms_course_link, course_image_url,
+    get_course_info_section, get_course_about_section, get_cms_block_link
 )
 from courseware.tests.helpers import get_request_for_user
 from courseware.tests.tests import TEST_DATA_MONGO_MODULESTORE, TEST_DATA_MIXED_MODULESTORE
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 
 
 CMS_BASE_TEST = 'testcms'
@@ -27,66 +28,56 @@ CMS_BASE_TEST = 'testcms'
 class CoursesTest(ModuleStoreTestCase):
     """Test methods related to fetching courses."""
 
-    def test_get_course_by_id_invalid_chars(self):
-        """
-        Test that `get_course_by_id` throws a 404, rather than
-        an exception, when faced with unexpected characters
-        (such as unicode characters, and symbols such as = and ' ')
-        """
-        with self.assertRaises(Http404):
-            get_course_by_id('MITx/foobar/statistics=introduction')
-            get_course_by_id('MITx/foobar/business and management')
-            get_course_by_id('MITx/foobar/NiñøJoséMaríáßç')
-
-    def test_get_course_invalid_chars(self):
-        """
-        Test that `get_course` throws a ValueError, rather than
-        a 404, when faced with unexpected characters
-        (such as unicode characters, and symbols such as = and ' ')
-        """
-        with self.assertRaises(ValueError):
-            get_course('MITx/foobar/statistics=introduction')
-            get_course('MITx/foobar/business and management')
-            get_course('MITx/foobar/NiñøJoséMaríáßç')
-
     @override_settings(
         MODULESTORE=TEST_DATA_MONGO_MODULESTORE, CMS_BASE=CMS_BASE_TEST
     )
-    def test_get_cms_course_link(self):
+    def test_get_cms_course_block_link(self):
         """
-        Tests that get_cms_course_link_by_id returns the right thing
+        Tests that get_cms_course_link_by_id and get_cms_block_link_by_id return the right thing
         """
-
         self.course = CourseFactory.create(
             org='org', number='num', display_name='name'
         )
 
-        self.assertEqual(
-            u"//{}/course/org.num.name/branch/draft/block/name".format(
-                CMS_BASE_TEST
-            ),
-            get_cms_course_link(self.course)
-        )
+        cms_url = u"//{}/course/org/num/name".format(CMS_BASE_TEST)
+        self.assertEqual(cms_url, get_cms_course_link(self.course))
+        cms_url = u"//{}/course/i4x://org/num/course/name".format(CMS_BASE_TEST)
+        self.assertEqual(cms_url, get_cms_block_link(self.course, 'course'))
+
+
+class ModuleStoreBranchSettingTest(ModuleStoreTestCase):
+    """Test methods related to the modulestore branch setting."""
+    def cleanup_branch_setting(self):
+        if hasattr(store_django._THREAD_CACHE, 'branch_setting'):
+            delattr(store_django._THREAD_CACHE, 'branch_setting')
+
+    def setUp(self):
+        self.cleanup_branch_setting()
+
+    def tearDown(self):
+        self.cleanup_branch_setting()
 
     @mock.patch(
         'xmodule.modulestore.django.get_current_request_hostname',
         mock.Mock(return_value='preview.localhost')
     )
     @override_settings(
-        HOSTNAME_MODULESTORE_DEFAULT_MAPPINGS={r'preview\.': 'draft'}
+        HOSTNAME_MODULESTORE_DEFAULT_MAPPINGS={r'preview\.': ModuleStoreEnum.Branch.draft_preferred},
+        MODULESTORE_BRANCH='fake_default_branch',
     )
     def test_default_modulestore_preview_mapping(self):
-        self.assertEqual(get_default_store_name_for_current_request(), 'draft')
+        self.assertEqual(store_django._get_modulestore_branch_setting(), ModuleStoreEnum.Branch.draft_preferred)
 
     @mock.patch(
         'xmodule.modulestore.django.get_current_request_hostname',
         mock.Mock(return_value='localhost')
     )
     @override_settings(
-        HOSTNAME_MODULESTORE_DEFAULT_MAPPINGS={r'preview\.': 'draft'}
+        HOSTNAME_MODULESTORE_DEFAULT_MAPPINGS={r'preview\.': ModuleStoreEnum.Branch.draft_preferred},
+        MODULESTORE_BRANCH='fake_default_branch',
     )
-    def test_default_modulestore_published_mapping(self):
-        self.assertEqual(get_default_store_name_for_current_request(), 'default')
+    def test_default_modulestore_branch_mapping(self):
+        self.assertEqual(store_django._get_modulestore_branch_setting(), 'fake_default_branch')
 
 
 @override_settings(
@@ -122,6 +113,29 @@ class MongoCourseImageTestCase(ModuleStoreTestCase):
             )
         )
 
+    def test_static_asset_path_course_image_default(self):
+        """
+        Test that without course_image being set, but static_asset_path
+        being set that we get the right course_image url.
+        """
+        course = CourseFactory.create(static_asset_path="foo")
+        self.assertEquals(
+            course_image_url(course),
+            '/static/foo/images/course_image.jpg'
+        )
+
+    def test_static_asset_path_course_image_set(self):
+        """
+        Test that with course_image and static_asset_path both
+        being set, that we get the right course_image url.
+        """
+        course = CourseFactory.create(course_image=u'things_stuff.jpg',
+                                      static_asset_path="foo")
+        self.assertEquals(
+            course_image_url(course),
+            '/static/foo/things_stuff.jpg'
+        )
+
 
 class XmlCourseImageTestCase(XModuleXmlImportTest):
     """Tests for course image URLs when using an xml modulestore."""
@@ -132,22 +146,21 @@ class XmlCourseImageTestCase(XModuleXmlImportTest):
         self.assertEquals(course_image_url(course), '/static/xml_test_course/images/course_image.jpg')
 
     def test_non_ascii_image_name(self):
-        # XML Course images are always stored at /images/course_image.jpg
         course = self.process_xml(xml.CourseFactory.build(course_image=u'before_\N{SNOWMAN}_after.jpg'))
-        self.assertEquals(course_image_url(course), '/static/xml_test_course/images/course_image.jpg')
+        self.assertEquals(course_image_url(course), u'/static/xml_test_course/before_\N{SNOWMAN}_after.jpg')
 
     def test_spaces_in_image_name(self):
-        # XML Course images are always stored at /images/course_image.jpg
         course = self.process_xml(xml.CourseFactory.build(course_image=u'before after.jpg'))
-        self.assertEquals(course_image_url(course), '/static/xml_test_course/images/course_image.jpg')
+        self.assertEquals(course_image_url(course), u'/static/xml_test_course/before after.jpg')
 
 
+@override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
 class CoursesRenderTest(ModuleStoreTestCase):
     """Test methods related to rendering courses content."""
+    toy_course_key = SlashSeparatedCourseKey('edX', 'toy', '2012_Fall')
 
-    @override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
     def test_get_course_info_section_render(self):
-        course = get_course_by_id('edX/toy/2012_Fall')
+        course = get_course_by_id(self.toy_course_key)
         request = get_request_for_user(UserFactory.create())
 
         # Test render works okay
@@ -162,10 +175,9 @@ class CoursesRenderTest(ModuleStoreTestCase):
             course_info = get_course_info_section(request, course, 'handouts')
             self.assertIn("this module is temporarily unavailable", course_info)
 
-    @override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
     @mock.patch('courseware.courses.get_request_for_thread')
     def test_get_course_about_section_render(self, mock_get_request):
-        course = get_course_by_id('edX/toy/2012_Fall')
+        course = get_course_by_id(self.toy_course_key)
         request = get_request_for_user(UserFactory.create())
         mock_get_request.return_value = request
 

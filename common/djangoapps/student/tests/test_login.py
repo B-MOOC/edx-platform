@@ -11,15 +11,16 @@ from django.test.utils import override_settings
 from django.conf import settings
 from django.core.cache import cache
 from django.core.urlresolvers import reverse, NoReverseMatch
+from django.http import HttpResponseBadRequest, HttpResponse
 from student.tests.factories import UserFactory, RegistrationFactory, UserProfileFactory
 from student.views import _parse_course_id_from_string, _get_course_enrollment_domain
 
 from xmodule.modulestore.tests.factories import CourseFactory
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase, mixed_store_config
-from xmodule.modulestore.inheritance import own_metadata
-from xmodule.modulestore.django import editable_modulestore
+from xmodule.modulestore.django import modulestore
 
 from external_auth.models import ExternalAuthMap
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 
 TEST_DATA_MIXED_MODULESTORE = mixed_store_config(settings.COMMON_TEST_DATA_ROOT, {})
 
@@ -205,9 +206,65 @@ class LoginTest(TestCase):
         # client1 will be logged out
         self.assertEqual(response.status_code, 302)
 
-    def _login_response(self, email, password, patched_audit_log='student.views.AUDIT_LOG'):
+    def test_change_enrollment_400(self):
+        """
+        Tests that a 400 in change_enrollment doesn't lead to a 404
+        and in fact just logs in the user without incident
+        """
+        # add this post param to trigger a call to change_enrollment
+        extra_post_params = {"enrollment_action": "enroll"}
+        with patch('student.views.change_enrollment') as mock_change_enrollment:
+            mock_change_enrollment.return_value = HttpResponseBadRequest("I am a 400")
+            response, _ = self._login_response(
+                'test@edx.org',
+                'test_password',
+                extra_post_params=extra_post_params,
+            )
+        response_content = json.loads(response.content)
+        self.assertIsNone(response_content["redirect_url"])
+        self._assert_response(response, success=True)
+
+    def test_change_enrollment_200_no_redirect(self):
+        """
+        Tests "redirect_url" is None if change_enrollment returns a HttpResponse
+        with no content
+        """
+        # add this post param to trigger a call to change_enrollment
+        extra_post_params = {"enrollment_action": "enroll"}
+        with patch('student.views.change_enrollment') as mock_change_enrollment:
+            mock_change_enrollment.return_value = HttpResponse()
+            response, _ = self._login_response(
+                'test@edx.org',
+                'test_password',
+                extra_post_params=extra_post_params,
+            )
+        response_content = json.loads(response.content)
+        self.assertIsNone(response_content["redirect_url"])
+        self._assert_response(response, success=True)
+
+    def test_change_enrollment_200_redirect(self):
+        """
+        Tests that "redirect_url" is the content of the HttpResponse returned
+        by change_enrollment, if there is content
+        """
+        # add this post param to trigger a call to change_enrollment
+        extra_post_params = {"enrollment_action": "enroll"}
+        with patch('student.views.change_enrollment') as mock_change_enrollment:
+            mock_change_enrollment.return_value = HttpResponse("in/nature/there/is/nothing/melancholy")
+            response, _ = self._login_response(
+                'test@edx.org',
+                'test_password',
+                extra_post_params=extra_post_params,
+            )
+        response_content = json.loads(response.content)
+        self.assertEqual(response_content["redirect_url"], "in/nature/there/is/nothing/melancholy")
+        self._assert_response(response, success=True)
+
+    def _login_response(self, email, password, patched_audit_log='student.views.AUDIT_LOG', extra_post_params=None):
         ''' Post the login info '''
         post_params = {'email': email, 'password': password}
+        if extra_post_params is not None:
+            post_params.update(extra_post_params)
         with patch(patched_audit_log) as mock_audit_log:
             result = self.client.post(self.url, post_params)
         return result, mock_audit_log
@@ -275,7 +332,10 @@ class UtilFnTest(TestCase):
         COURSE_ID = u'org/num/run'                                # pylint: disable=C0103
         COURSE_URL = u'/courses/{}/otherstuff'.format(COURSE_ID)  # pylint: disable=C0103
         NON_COURSE_URL = u'/blahblah'                             # pylint: disable=C0103
-        self.assertEqual(_parse_course_id_from_string(COURSE_URL), COURSE_ID)
+        self.assertEqual(
+            _parse_course_id_from_string(COURSE_URL),
+            SlashSeparatedCourseKey.from_deprecated_string(COURSE_ID)
+        )
         self.assertIsNone(_parse_course_id_from_string(NON_COURSE_URL))
 
 
@@ -285,11 +345,20 @@ class ExternalAuthShibTest(ModuleStoreTestCase):
     Tests how login_user() interacts with ExternalAuth, in particular Shib
     """
     def setUp(self):
-        self.store = editable_modulestore()
-        self.course = CourseFactory.create(org='Stanford', number='456', display_name='NO SHIB')
-        self.shib_course = CourseFactory.create(org='Stanford', number='123', display_name='Shib Only')
-        self.shib_course.enrollment_domain = 'shib:https://idp.stanford.edu/'
-        self.store.update_item(self.shib_course, '**replace_user**')
+        super(ExternalAuthShibTest, self).setUp()
+        self.course = CourseFactory.create(
+            org='Stanford',
+            number='456',
+            display_name='NO SHIB',
+            user_id=self.user.id,
+        )
+        self.shib_course = CourseFactory.create(
+            org='Stanford',
+            number='123',
+            display_name='Shib Only',
+            enrollment_domain='shib:https://idp.stanford.edu/',
+            user_id=self.user.id,
+        )
         self.user_w_map = UserFactory.create(email='withmap@stanford.edu')
         self.extauth = ExternalAuthMap(external_id='withmap@stanford.edu',
                                        external_email='withmap@stanford.edu',
@@ -320,7 +389,7 @@ class ExternalAuthShibTest(ModuleStoreTestCase):
         """
         Tests the _get_course_enrollment_domain utility function
         """
-        self.assertIsNone(_get_course_enrollment_domain("I/DONT/EXIST"))
+        self.assertIsNone(_get_course_enrollment_domain(SlashSeparatedCourseKey("I", "DONT", "EXIST")))
         self.assertIsNone(_get_course_enrollment_domain(self.course.id))
         self.assertEqual(self.shib_course.enrollment_domain, _get_course_enrollment_domain(self.shib_course.id))
 
@@ -340,7 +409,7 @@ class ExternalAuthShibTest(ModuleStoreTestCase):
         Tests the redirects when visiting course-specific URL with @login_required.
         Should vary by course depending on its enrollment_domain
         """
-        TARGET_URL = reverse('courseware', args=[self.course.id])            # pylint: disable=C0103
+        TARGET_URL = reverse('courseware', args=[self.course.id.to_deprecated_string()])            # pylint: disable=C0103
         noshib_response = self.client.get(TARGET_URL, follow=True)
         self.assertEqual(noshib_response.redirect_chain[-1],
                          ('http://testserver/accounts/login?next={url}'.format(url=TARGET_URL), 302))
@@ -348,7 +417,7 @@ class ExternalAuthShibTest(ModuleStoreTestCase):
                                               .format(platform_name=settings.PLATFORM_NAME)))
         self.assertEqual(noshib_response.status_code, 200)
 
-        TARGET_URL_SHIB = reverse('courseware', args=[self.shib_course.id])  # pylint: disable=C0103
+        TARGET_URL_SHIB = reverse('courseware', args=[self.shib_course.id.to_deprecated_string()])  # pylint: disable=C0103
         shib_response = self.client.get(**{'path': TARGET_URL_SHIB,
                                            'follow': True,
                                            'REMOTE_USER': self.extauth.external_id,

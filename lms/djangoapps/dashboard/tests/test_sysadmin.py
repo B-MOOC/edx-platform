@@ -4,6 +4,7 @@ Provide tests for sysadmin dashboard feature in sysadmin.py
 
 import glob
 import os
+import re
 import shutil
 import unittest
 
@@ -13,12 +14,13 @@ from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from django.test.client import Client
 from django.test.utils import override_settings
-from django.utils.html import escape
 from django.utils.translation import ugettext as _
 import mongoengine
+from django.utils.timezone import utc as UTC
+from util.date_utils import get_time_display, DEFAULT_DATE_TIME_FORMAT
 
 from student.roles import CourseStaffRole, GlobalStaff
-from courseware.tests.tests import TEST_DATA_MONGO_MODULESTORE
+from courseware.tests.modulestore_config import TEST_DATA_XML_MODULESTORE
 from dashboard.models import CourseImportLog
 from dashboard.sysadmin import Users
 from dashboard.git_import import GitImportError
@@ -27,6 +29,7 @@ from student.tests.factories import UserFactory
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.xml import XMLModuleStore
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 
 
 TEST_MONGODB_LOG = {
@@ -47,11 +50,11 @@ class SysadminBaseTestCase(ModuleStoreTestCase):
 
     TEST_REPO = 'https://github.com/mitocw/edx4edx_lite.git'
     TEST_BRANCH = 'testing_do_not_delete'
-    TEST_BRANCH_COURSE = 'MITx/edx4edx_branch/edx4edx'
+    TEST_BRANCH_COURSE = SlashSeparatedCourseKey('MITx', 'edx4edx_branch', 'edx4edx')
 
     def setUp(self):
         """Setup test case by adding primary user."""
-        super(SysadminBaseTestCase, self).setUp()
+        super(SysadminBaseTestCase, self).setUp(create_user=False)
         self.user = UserFactory.create(username='test_user',
                                        email='test_user+sysadmin@edx.org',
                                        password='foo')
@@ -79,12 +82,16 @@ class SysadminBaseTestCase(ModuleStoreTestCase):
             course = def_ms.courses.get(course_path, None)
         except AttributeError:
             # Using mongo store
-            course = def_ms.get_course('MITx/edx4edx/edx4edx')
+            course = def_ms.get_course(SlashSeparatedCourseKey('MITx', 'edx4edx', 'edx4edx'))
 
         # Delete git loaded course
-        response = self.client.post(reverse('sysadmin_courses'),
-                                {'course_id': course.id,
-                                 'action': 'del_course', })
+        response = self.client.post(
+            reverse('sysadmin_courses'),
+            {
+                'course_id': course.id.to_deprecated_string(),
+                'action': 'del_course',
+            }
+        )
         self.addCleanup(self._rm_glob, '{0}_deleted_*'.format(course_path))
 
         return response
@@ -105,6 +112,7 @@ class SysadminBaseTestCase(ModuleStoreTestCase):
         self.addCleanup(shutil.rmtree, path)
 
 
+@override_settings(MODULESTORE=TEST_DATA_XML_MODULESTORE)
 @unittest.skipUnless(settings.FEATURES.get('ENABLE_SYSADMIN_DASHBOARD'),
                      "ENABLE_SYSADMIN_DASHBOARD not set")
 @override_settings(GIT_IMPORT_WITH_XMLMODULESTORE=True)
@@ -120,6 +128,9 @@ class TestSysadmin(SysadminBaseTestCase):
         for view in test_views:
             response = self.client.get(reverse(view))
             self.assertEqual(response.status_code, 302)
+
+        self.user.is_staff = False
+        self.user.save()
 
         logged_in = self.client.login(username=self.user.username,
                                       password='foo')
@@ -159,13 +170,13 @@ class TestSysadmin(SysadminBaseTestCase):
                                     {'action': 'create_user',
                                      'student_fullname': 'blah',
                                      'student_password': 'foozor', })
-        self.assertIn(_('Must provide username'), response.content.decode('utf-8'))
+        self.assertIn('Must provide username', response.content.decode('utf-8'))
         # no full name
         response = self.client.post(reverse('sysadmin'),
                                     {'action': 'create_user',
                                      'student_uname': 'test_cuser+sysadmin@edx.org',
                                      'student_password': 'foozor', })
-        self.assertIn(_('Must provide full name'), response.content.decode('utf-8'))
+        self.assertIn('Must provide full name', response.content.decode('utf-8'))
 
         # Test create valid user
         self.client.post(reverse('sysadmin'),
@@ -190,20 +201,20 @@ class TestSysadmin(SysadminBaseTestCase):
         # Try no username
         response = self.client.post(reverse('sysadmin'),
                                     {'action': 'del_user', })
-        self.assertIn(_('Must provide username'), response.content.decode('utf-8'))
+        self.assertIn('Must provide username', response.content.decode('utf-8'))
 
         # Try bad usernames
         response = self.client.post(reverse('sysadmin'),
                                     {'action': 'del_user',
                                      'student_uname': 'flabbergast@example.com',
                                      'student_fullname': 'enigma jones', })
-        self.assertIn(_('Cannot find user with email address'), response.content.decode('utf-8'))
+        self.assertIn('Cannot find user with email address', response.content.decode('utf-8'))
 
         response = self.client.post(reverse('sysadmin'),
                                     {'action': 'del_user',
                                      'student_uname': 'flabbergast',
                                      'student_fullname': 'enigma jones', })
-        self.assertIn(_('Cannot find user with username'), response.content.decode('utf-8'))
+        self.assertIn('Cannot find user with username', response.content.decode('utf-8'))
 
         self.client.post(reverse('sysadmin'),
                          {'action': 'del_user',
@@ -266,9 +277,9 @@ class TestSysadmin(SysadminBaseTestCase):
         response = self.client.post(reverse('sysadmin'),
                                     {'action': 'repair_eamap', })
 
-        self.assertIn('{0} test0'.format(_('Failed in authenticating')),
+        self.assertIn('{0} test0'.format('Failed in authenticating'),
                       response.content)
-        self.assertIn(_('fixed password'), response.content.decode('utf-8'))
+        self.assertIn('fixed password', response.content.decode('utf-8'))
 
         self.assertTrue(self.client.login(username='test0',
                                           password=eamap.internal_password))
@@ -277,7 +288,7 @@ class TestSysadmin(SysadminBaseTestCase):
         self._setstaff_login()
         response = self.client.post(reverse('sysadmin'),
                                     {'action': 'repair_eamap', })
-        self.assertIn(_('All ok!'), response.content.decode('utf-8'))
+        self.assertIn('All ok!', response.content.decode('utf-8'))
 
     def test_xml_course_add_delete(self):
         """add and delete course from xml module store"""
@@ -294,7 +305,7 @@ class TestSysadmin(SysadminBaseTestCase):
         response = self.client.post(reverse('sysadmin_courses'), {
             'repo_location': 'http://example.com/not_real.git',
             'action': 'add_course', })
-        self.assertIn(_('Unable to clone or pull repository'),
+        self.assertIn('Unable to clone or pull repository',
                       response.content.decode('utf-8'))
         # Create git loaded course
         response = self._add_edx4edx()
@@ -321,14 +332,14 @@ class TestSysadmin(SysadminBaseTestCase):
         course = def_ms.courses.get('{0}/edx4edx_lite'.format(
             os.path.abspath(settings.DATA_DIR)), None)
         self.assertIsNotNone(course)
-        self.assertIn(self.TEST_BRANCH_COURSE, course.location.course_id)
+        self.assertEqual(self.TEST_BRANCH_COURSE, course.id)
         self._rm_edx4edx()
 
         # Try and delete a non-existent course
         response = self.client.post(reverse('sysadmin_courses'),
                                     {'course_id': 'foobar/foo/blah',
                                      'action': 'del_course', })
-        self.assertIn(_('Error - cannot get course with ID'),
+        self.assertIn('Error - cannot get course with ID',
                       response.content.decode('utf-8'))
 
     @override_settings(GIT_IMPORT_WITH_XMLMODULESTORE=False)
@@ -363,15 +374,15 @@ class TestSysadmin(SysadminBaseTestCase):
         self._add_edx4edx()
 
         def_ms = modulestore()
-        course = def_ms.get_course('MITx/edx4edx/edx4edx')
-        CourseStaffRole(course.location).add_users(self.user)
+        course = def_ms.get_course(SlashSeparatedCourseKey('MITx', 'edx4edx', 'edx4edx'))
+        CourseStaffRole(course.id).add_users(self.user)
 
         response = self.client.post(reverse('sysadmin_staffing'),
                                     {'action': 'get_staff_csv', })
         self.assertIn('attachment', response['Content-Disposition'])
         self.assertEqual('text/csv', response['Content-Type'])
-        columns = [_('course_id'), _('role'), _('username'),
-                   _('email'), _('full_name'), ]
+        columns = ['course_id', 'role', 'username',
+                   'email', 'full_name', ]
         self.assertIn(','.join('"' + c + '"' for c in columns),
                       response.content)
 
@@ -390,7 +401,6 @@ class TestSysadmin(SysadminBaseTestCase):
         self._rm_edx4edx()
 
 
-@override_settings(MODULESTORE=TEST_DATA_MONGO_MODULESTORE)
 @override_settings(MONGODB_LOG=TEST_MONGODB_LOG)
 @unittest.skipUnless(settings.FEATURES.get('ENABLE_SYSADMIN_DASHBOARD'),
                      "ENABLE_SYSADMIN_DASHBOARD not set")
@@ -447,12 +457,37 @@ class TestSysAdminMongoCourseImport(SysadminBaseTestCase):
         self.assertFalse(isinstance(def_ms, XMLModuleStore))
 
         self._add_edx4edx()
-        course = def_ms.get_course('MITx/edx4edx/edx4edx')
+        course = def_ms.get_course(SlashSeparatedCourseKey('MITx', 'edx4edx', 'edx4edx'))
         self.assertIsNotNone(course)
 
         self._rm_edx4edx()
-        course = def_ms.get_course('MITx/edx4edx/edx4edx')
+        course = def_ms.get_course(SlashSeparatedCourseKey('MITx', 'edx4edx', 'edx4edx'))
         self.assertIsNone(course)
+
+    def test_course_info(self):
+        """
+        Check to make sure we are getting git info for courses
+        """
+        # Regex of first 3 columns of course information table row for
+        # test course loaded from git. Would not have sha1 if
+        # git_info_for_course failed.
+        table_re = re.compile(r"""
+            <tr>\s+
+            <td>edX\sAuthor\sCourse</td>\s+  # expected test git course name
+            <td>MITx/edx4edx/edx4edx</td>\s+  # expected test git course_id
+            <td>[a-fA-F\d]{40}</td>  # git sha1 hash
+        """, re.VERBOSE)
+
+        self._setstaff_login()
+        self._mkdir(getattr(settings, 'GIT_REPO_DIR'))
+
+        # Make sure we don't have any git hashes on the page
+        response = self.client.get(reverse('sysadmin_courses'))
+        self.assertNotRegexpMatches(response.content, table_re)
+
+        # Now add the course and make sure it does match
+        response = self._add_edx4edx()
+        self.assertRegexpMatches(response.content, table_re)
 
     def test_gitlogs(self):
         """
@@ -472,8 +507,38 @@ class TestSysAdminMongoCourseImport(SysadminBaseTestCase):
             reverse('gitlogs_detail', kwargs={
                 'course_id': 'MITx/edx4edx/edx4edx'}))
 
-        self.assertIn('======&gt; IMPORTING course to location',
+        self.assertIn('======&gt; IMPORTING course',
                       response.content)
+
+        self._rm_edx4edx()
+
+    def test_gitlog_date(self):
+        """
+        Make sure the date is timezone-aware and being converted/formatted
+        properly.
+        """
+
+        tz_names = [
+            'America/New_York',  # UTC - 5
+            'Asia/Pyongyang',    # UTC + 9
+            'Europe/London',     # UTC
+            'Canada/Yukon',      # UTC - 8
+            'Europe/Moscow',     # UTC + 4
+        ]
+        tz_format = DEFAULT_DATE_TIME_FORMAT
+
+        self._setstaff_login()
+        self._mkdir(getattr(settings, 'GIT_REPO_DIR'))
+
+        self._add_edx4edx()
+        date = CourseImportLog.objects.first().created.replace(tzinfo=UTC)
+
+        for timezone in tz_names:
+            with (override_settings(TIME_ZONE=timezone)):
+                date_text = get_time_display(date, tz_format, settings.TIME_ZONE)
+                response = self.client.get(reverse('gitlogs'))
+
+                self.assertIn(date_text, response.content)
 
         self._rm_edx4edx()
 
@@ -505,23 +570,25 @@ class TestSysAdminMongoCourseImport(SysadminBaseTestCase):
         self.assertEqual(response.status_code, 404)
         # Or specific logs
         response = self.client.get(reverse('gitlogs_detail', kwargs={
-            'course_id': 'MITx/edx4edx/edx4edx'}))
+            'course_id': 'MITx/edx4edx/edx4edx'
+        }))
         self.assertEqual(response.status_code, 404)
 
         # Add user as staff in course team
         def_ms = modulestore()
-        course = def_ms.get_course('MITx/edx4edx/edx4edx')
-        CourseStaffRole(course.location).add_users(self.user)
+        course = def_ms.get_course(SlashSeparatedCourseKey('MITx', 'edx4edx', 'edx4edx'))
+        CourseStaffRole(course.id).add_users(self.user)
 
-        self.assertTrue(CourseStaffRole(course.location).has_user(self.user))
+        self.assertTrue(CourseStaffRole(course.id).has_user(self.user))
         logged_in = self.client.login(username=self.user.username,
                                       password='foo')
         self.assertTrue(logged_in)
 
         response = self.client.get(
             reverse('gitlogs_detail', kwargs={
-                'course_id': 'MITx/edx4edx/edx4edx'}))
-        self.assertIn('======&gt; IMPORTING course to location',
+                'course_id': 'MITx/edx4edx/edx4edx'
+            }))
+        self.assertIn('======&gt; IMPORTING course',
                       response.content)
 
         self._rm_edx4edx()

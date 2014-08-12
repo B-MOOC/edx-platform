@@ -3,8 +3,10 @@ Provides full versioning CRUD and representation for collections of xblocks (e.g
 
 Representation:
 * course_index: a dictionary:
-    ** '_id': package_id (e.g., myu.mydept.mycourse.myrun),
+    ** '_id': a unique id which cannot change,
     ** 'org': the org's id. Only used for searching not identity,
+    ** 'course': the course's catalog number
+    ** 'run': the course's run id,
     ** 'edited_by': user_id of user who created the original entry,
     ** 'edited_on': the datetime of the original creation,
     ** 'versions': versions_dict: {branch_id: structure_id, ...}
@@ -47,29 +49,30 @@ Representation:
 import threading
 import datetime
 import logging
-import re
 from importlib import import_module
 from path import path
 import copy
 from pytz import UTC
+from bson.objectid import ObjectId
 
+from xblock.core import XBlock
+from xblock.fields import Scope, Reference, ReferenceList, ReferenceValueDict
 from xmodule.errortracker import null_error_tracker
-from xmodule.modulestore.locator import (
+from opaque_keys.edx.locator import (
     BlockUsageLocator, DefinitionLocator, CourseLocator, VersionTree,
     LocalId, Locator
 )
 from xmodule.modulestore.exceptions import InsufficientSpecificationError, VersionConflictError, DuplicateItemError, \
     DuplicateCourseError
-from xmodule.modulestore import inheritance, ModuleStoreWriteBase, Location, SPLIT_MONGO_MODULESTORE_TYPE
+from xmodule.modulestore import inheritance, ModuleStoreWriteBase, ModuleStoreEnum, PublishState
 
 from ..exceptions import ItemNotFoundError
 from .definition_lazy_loader import DefinitionLazyLoader
 from .caching_descriptor_system import CachingDescriptorSystem
-from xblock.fields import Scope
-from bson.objectid import ObjectId
 from xmodule.modulestore.split_mongo.mongo_connection import MongoConnection
-from xblock.core import XBlock
-from xmodule.modulestore.loc_mapper_store import LocMapperStore
+from xmodule.error_module import ErrorDescriptor
+from xmodule.modulestore.split_mongo import encode_key_for_mongo, decode_key_from_mongo
+
 
 log = logging.getLogger(__name__)
 #==============================================================================
@@ -101,19 +104,19 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
     SCHEMA_VERSION = 1
     reference_type = Locator
-    def __init__(self, doc_store_config, fs_root, render_template,
+
+    def __init__(self, contentstore, doc_store_config, fs_root, render_template,
                  default_class=None,
                  error_tracker=null_error_tracker,
-                 loc_mapper=None,
                  i18n_service=None,
                  **kwargs):
         """
         :param doc_store_config: must have a host, db, and collection entries. Other common entries: port, tz_aware.
         """
 
-        super(SplitMongoModuleStore, self).__init__(**kwargs)
-        self.loc_mapper = loc_mapper
+        super(SplitMongoModuleStore, self).__init__(contentstore, **kwargs)
 
+        self.branch_setting_func = kwargs.pop('branch_setting_func', lambda: ModuleStoreEnum.Branch.published_only)
         self.db_connection = MongoConnection(**doc_store_config)
         self.db = self.db_connection.database
 
@@ -122,7 +125,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         self.thread_cache = threading.local()
 
         if default_class is not None:
-            module_path, _, class_name = default_class.rpartition('.')
+            module_path, __, class_name = default_class.rpartition('.')
             class_ = getattr(import_module(module_path), class_name)
             self.default_class = class_
         else:
@@ -132,12 +135,31 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         self.render_template = render_template
         self.i18n_service = i18n_service
 
-    def cache_items(self, system, base_block_ids, depth=0, lazy=True):
+    def close_connections(self):
+        """
+        Closes any open connections to the underlying databases
+        """
+        self.db.connection.close()
+
+    def _drop_database(self):
+        """
+        A destructive operation to drop the underlying database and close all connections.
+        Intended to be used by test code for cleanup.
+        """
+        # drop the assets
+        super(SplitMongoModuleStore, self)._drop_database()
+
+        connection = self.db.connection
+        connection.drop_database(self.db.name)
+        connection.close()
+
+    def cache_items(self, system, base_block_ids, course_key, depth=0, lazy=True):
         '''
         Handles caching of items once inheritance and any other one time
         per course per fetch operations are done.
         :param system: a CachingDescriptorSystem
         :param base_block_ids: list of block_ids to fetch
+        :param course_key: the destination course providing the context
         :param depth: how deep below these to prefetch
         :param lazy: whether to fetch definitions or use placeholders
         '''
@@ -152,7 +174,13 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         if lazy:
             for block in new_module_data.itervalues():
-                block['definition'] = DefinitionLazyLoader(self, block['definition'])
+                block['definition'] = DefinitionLazyLoader(
+                    self, block['category'], block['definition'],
+                    lambda fields: self.convert_references_to_keys(
+                        course_key, system.load_block_type(block['category']),
+                        fields, system.course_entry['structure']['blocks'],
+                    )
+                )
         else:
             # Load all descendants by id
             descendent_definitions = self.db_connection.find_matching_definitions({
@@ -164,7 +192,12 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
             for block in new_module_data.itervalues():
                 if block['definition'] in definitions:
-                    block['fields'].update(definitions[block['definition']].get('fields'))
+                    converted_fields = self.convert_references_to_keys(
+                        course_key, system.load_block_type(block['category']),
+                        definitions[block['definition']].get('fields'),
+                        system.course_entry['structure']['blocks'],
+                    )
+                    block['fields'].update(converted_fields)
 
         system.module_data.update(new_module_data)
         return system.module_data
@@ -195,7 +228,14 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
                 services=services,
             )
             self._add_cache(course_entry['structure']['_id'], system)
-            self.cache_items(system, block_ids, depth, lazy)
+            course_key = CourseLocator(
+                version_guid=course_entry['structure']['_id'],
+                org=course_entry.get('org'),
+                course=course_entry.get('course'),
+                run=course_entry.get('run'),
+                branch=course_entry.get('branch'),
+            )
+            self.cache_items(system, block_ids, course_key, depth, lazy)
         return [system.load_item(block_id, course_entry) for block_id in block_ids]
 
     def _get_cache(self, course_version_guid):
@@ -235,21 +275,25 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         return the CourseDescriptor! It returns the actual db json from
         structures.
 
-        Semantics: if package_id and branch given, then it will get that branch. If
+        Semantics: if course id and branch given, then it will get that branch. If
         also give a version_guid, it will see if the current head of that branch == that guid. If not
         it raises VersionConflictError (the version now differs from what it was when you got your
         reference)
 
         :param course_locator: any subclass of CourseLocator
         '''
-        # NOTE: if and when this uses cache, the update if changed logic will break if the cache
-        # holds the same objects as the descriptors!
-        if not course_locator.is_fully_specified():
-            raise InsufficientSpecificationError('Not fully specified: %s' % course_locator)
-
-        if course_locator.package_id is not None and course_locator.branch is not None:
-            # use the package_id
-            index = self.db_connection.get_course_index(course_locator.package_id)
+        if course_locator.org and course_locator.course and course_locator.run:
+            if course_locator.branch is None:
+                # default it based on branch_setting
+                # NAATODO move this to your mixin
+                if self.branch_setting_func() == ModuleStoreEnum.Branch.draft_preferred:
+                    course_locator = course_locator.for_branch(ModuleStoreEnum.BranchName.draft)
+                elif self.branch_setting_func() == ModuleStoreEnum.Branch.published_only:
+                    course_locator = course_locator.for_branch(ModuleStoreEnum.BranchName.published)
+                else:
+                    raise InsufficientSpecificationError(course_locator)
+            # use the course id
+            index = self.db_connection.get_course_index(course_locator)
             if index is None:
                 raise ItemNotFoundError(course_locator)
             if course_locator.branch not in index['versions']:
@@ -258,6 +302,8 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             if course_locator.version_guid is not None and version_guid != course_locator.version_guid:
                 # This may be a bit too touchy but it's hard to infer intent
                 raise VersionConflictError(course_locator, version_guid)
+        elif course_locator.version_guid is None:
+            raise InsufficientSpecificationError(course_locator)
         else:
             # TODO should this raise an exception if branch was provided?
             version_guid = course_locator.version_guid
@@ -266,17 +312,20 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         version_guid = course_locator.as_object_id(version_guid)
         entry = self.db_connection.get_structure(version_guid)
 
-        # b/c more than one course can use same structure, the 'package_id' and 'branch' are not intrinsic to structure
+        # b/c more than one course can use same structure, the 'org', 'course',
+        # 'run', and 'branch' are not intrinsic to structure
         # and the one assoc'd w/ it by another fetch may not be the one relevant to this fetch; so,
         # add it in the envelope for the structure.
         envelope = {
-            'package_id': course_locator.package_id,
+            'org': course_locator.org,
+            'course': course_locator.course,
+            'run': course_locator.run,
             'branch': course_locator.branch,
             'structure': entry,
         }
         return envelope
 
-    def get_courses(self, branch='draft', qualifiers=None):
+    def get_courses(self, branch=ModuleStoreEnum.BranchName.draft, qualifiers=None):
         '''
         Returns a list of course descriptors matching any given qualifiers.
 
@@ -284,74 +333,97 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         legal query for mongo to use against the active_versions collection.
 
         Note, this is to find the current head of the named branch type
-        (e.g., 'draft'). To get specific versions via guid use get_course.
+        (e.g., ModuleStoreEnum.BranchName.draft). To get specific versions via guid use get_course.
 
-        :param branch: the branch for which to return courses. Default value is 'draft'.
-        :param qualifiers: a optional dict restricting which elements should match
+        :param branch: the branch for which to return courses. Default value is ModuleStoreEnum.BranchName.draft.
+        :param qualifiers: an optional dict restricting which elements should match
         '''
         if qualifiers is None:
             qualifiers = {}
         qualifiers.update({"versions.{}".format(branch): {"$exists": True}})
-        matching = self.db_connection.find_matching_course_indexes(qualifiers)
+        matching_indexes = self.db_connection.find_matching_course_indexes(qualifiers)
 
         # collect ids and then query for those
         version_guids = []
         id_version_map = {}
-        for structure in matching:
-            version_guid = structure['versions'][branch]
+        for course_index in matching_indexes:
+            version_guid = course_index['versions'][branch]
             version_guids.append(version_guid)
-            id_version_map[version_guid] = structure['_id']
+            id_version_map[version_guid] = course_index
 
-        course_entries = self.db_connection.find_matching_structures({'_id': {'$in': version_guids}})
+        matching_structures = self.db_connection.find_matching_structures({'_id': {'$in': version_guids}})
 
-        # get the block for the course element (s/b the root)
+        # get the blocks for each course index (s/b the root)
         result = []
-        for entry in course_entries:
+        for entry in matching_structures:
+            course_info = id_version_map[entry['_id']]
             envelope = {
-                'package_id': id_version_map[entry['_id']],
+                'org': course_info['org'],
+                'course': course_info['course'],
+                'run': course_info['run'],
                 'branch': branch,
                 'structure': entry,
             }
             root = entry['root']
-            result.extend(self._load_items(envelope, [root], 0, lazy=True))
+            course_list = self._load_items(envelope, [root], 0, lazy=True)
+            if not isinstance(course_list[0], ErrorDescriptor):
+                result.append(course_list[0])
         return result
 
-    def get_course(self, course_locator):
+    def get_course(self, course_id, depth=0):
         '''
         Gets the course descriptor for the course identified by the locator
-        which may or may not be a blockLocator.
-
-        raises InsufficientSpecificationError
         '''
-        course_entry = self._lookup_course(course_locator)
+        assert(isinstance(course_id, CourseLocator))
+        course_entry = self._lookup_course(course_id)
         root = course_entry['structure']['root']
         result = self._load_items(course_entry, [root], 0, lazy=True)
         return result[0]
 
-    def get_course_for_item(self, location):
+    def has_course(self, course_id, ignore_case=False):
         '''
-        Provided for backward compatibility. Is equivalent to calling get_course
-        :param location:
-        '''
-        return self.get_course(location)
+        Does this course exist in this modulestore. This method does not verify that the branch &/or
+        version in the course_id exists. Use get_course_index_info to check that.
 
-    def has_item(self, package_id, block_location):
+        Returns the course_id of the course if it was found, else None
+        Note: we return the course_id instead of a boolean here since the found course may have
+           a different id than the given course_id when ignore_case is True.
+        '''
+        assert(isinstance(course_id, CourseLocator))
+        course_index = self.db_connection.get_course_index(course_id, ignore_case)
+        return CourseLocator(course_index['org'], course_index['course'], course_index['run'], course_id.branch) if course_index else None
+
+    def has_item(self, usage_key):
         """
-        Returns True if location exists in its course. Returns false if
+        Returns True if usage_key exists in its course. Returns false if
         the course or the block w/in the course do not exist for the given version.
-        raises InsufficientSpecificationError if the locator does not id a block
+        raises InsufficientSpecificationError if the usage_key does not id a block
         """
-        if block_location.block_id is None:
-            raise InsufficientSpecificationError(block_location)
+        if usage_key.block_id is None:
+            raise InsufficientSpecificationError(usage_key)
         try:
-            course_structure = self._lookup_course(block_location)['structure']
+            course_structure = self._lookup_course(usage_key)['structure']
         except ItemNotFoundError:
             # this error only occurs if the course does not exist
             return False
 
-        return self._get_block_from_structure(course_structure, block_location.block_id) is not None
+        return self._get_block_from_structure(course_structure, usage_key.block_id) is not None
 
-    def get_item(self, location, depth=0):
+    def has_changes(self, usage_key):
+        """
+        Checks if the given block has unpublished changes
+        :param usage_key: the block to check
+        :return: True if the draft and published versions differ
+        """
+        draft = self.get_item(usage_key.for_branch(ModuleStoreEnum.BranchName.draft))
+        try:
+            published = self.get_item(usage_key.for_branch(ModuleStoreEnum.BranchName.published))
+        except ItemNotFoundError:
+            return True
+
+        return draft.update_version != published.update_version
+
+    def get_item(self, usage_key, depth=0):
         """
         depth (int): An argument that some module stores may use to prefetch
             descendants of the queried modules for more efficient results later
@@ -360,53 +432,69 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             descendants.
         raises InsufficientSpecificationError or ItemNotFoundError
         """
-        # intended for temporary support of some pointers being old-style
-        if isinstance(location, Location):
-            if self.loc_mapper is None:
-                raise InsufficientSpecificationError('No location mapper configured')
-            else:
-                location = self.loc_mapper.translate_location(
-                    None, location, location.revision is None,
-                    add_entry_if_missing=False
-                )
-        assert isinstance(location, BlockUsageLocator)
-        if not location.is_initialized():
-            raise InsufficientSpecificationError("Not yet initialized: %s" % location)
-        course = self._lookup_course(location)
-        items = self._load_items(course, [location.block_id], depth, lazy=True)
+        assert isinstance(usage_key, BlockUsageLocator)
+        course = self._lookup_course(usage_key)
+        items = self._load_items(course, [usage_key.block_id], depth, lazy=True)
         if len(items) == 0:
-            raise ItemNotFoundError(location)
+            raise ItemNotFoundError(usage_key)
+        elif len(items) > 1:
+            log.debug("Found more than one item for '{}'".format(usage_key))
         return items[0]
 
-    def get_items(self, locator, course_id=None, depth=0, qualifiers=None):
+    def get_items(self, course_locator, settings=None, content=None, **kwargs):
         """
-        Get all of the modules in the given course matching the qualifiers. The
-        qualifiers should only be fields in the structures collection (sorry).
-        There will be a separate search method for searching through
-        definitions.
+        Returns:
+            list of XModuleDescriptor instances for the matching items within the course with
+            the given course_locator
 
-        Common qualifiers are category, definition (provide definition id),
-        display_name, anyfieldname, children (return
-        block if its children includes the one given value). If you want
-        substring matching use {$regex: /acme.*corp/i} type syntax.
+        NOTE: don't use this to look for courses as the course_locator is required. Use get_courses.
 
-        Although these
-        look like mongo queries, it is all done in memory; so, you cannot
-        try arbitrary queries.
-
-        :param locator: CourseLocator or BlockUsageLocator restricting search scope
-        :param course_id: ignored. Only included for API compatibility.
-        :param depth: ignored. Only included for API compatibility.
-        :param qualifiers: a dict restricting which elements should match
-
+        Args:
+            course_locator (CourseLocator): the course identifier
+            settings (dict): fields to look for which have settings scope. Follows same syntax
+                and rules as kwargs below
+            content (dict): fields to look for which have content scope. Follows same syntax and
+                rules as kwargs below.
+            kwargs (key=value): what to look for within the course.
+                Common qualifiers are ``category`` or any field name. if the target field is a list,
+                then it searches for the given value in the list not list equivalence.
+                For substring matching pass a regex object.
+                For split,
+                you can search by ``edited_by``, ``edited_on`` providing a function testing limits.
         """
-        # TODO extend to only search a subdag of the course?
-        if qualifiers is None:
-            qualifiers = {}
-        course = self._lookup_course(locator)
+        course = self._lookup_course(course_locator)
         items = []
+
+        def _block_matches_all(block_json):
+            """
+            Check that the block matches all the criteria
+            """
+            # do the checks which don't require loading any additional data
+            if (
+                self._block_matches(block_json, kwargs) and
+                self._block_matches(block_json.get('fields', {}), settings)
+            ):
+                if content:
+                    definition_block = self.db_connection.get_definition(block_json['definition'])
+                    return self._block_matches(definition_block.get('fields', {}), content)
+                else:
+                    return True
+
+        if settings is None:
+            settings = {}
+        if 'name' in kwargs:
+            # odd case where we don't search just confirm
+            block_id = kwargs.pop('name')
+            block = course['structure']['blocks'].get(block_id)
+            if _block_matches_all(block):
+                return self._load_items(course, [block_id], lazy=True)
+            else:
+                return []
+        # don't expect caller to know that children are in fields
+        if 'children' in kwargs:
+            settings['children'] = kwargs.pop('children')
         for block_id, value in course['structure']['blocks'].iteritems():
-            if self._block_matches(value, qualifiers):
+            if _block_matches_all(value):
                 items.append(block_id)
 
         if len(items) > 0:
@@ -414,52 +502,39 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         else:
             return []
 
-    def get_instance(self, course_id, location, depth=0):
-        """
-        Get an instance of this location.
-
-        For now, just delegate to get_item and ignore course policy.
-
-        depth (int): An argument that some module stores may use to prefetch
-            descendants of the queried modules for more efficient results later
-            in the request. The depth is counted in the number of
-            calls to get_children() to cache. None indicates to cache all descendants.
-        """
-        return self.get_item(location, depth=depth)
-
-    def get_parent_locations(self, locator, course_id=None):
+    def get_parent_location(self, locator, **kwargs):
         '''
-        Return the locations (Locators w/ block_ids) for the parents of this location in this
+        Return the location (Locators w/ block_ids) for the parent of this location in this
         course. Could use get_items(location, {'children': block_id}) but this is slightly faster.
         NOTE: the locator must contain the block_id, and this code does not actually ensure block_id exists
 
         :param locator: BlockUsageLocator restricting search scope
-        :param course_id: ignored. Only included for API compatibility. Specify the course_id within the locator.
         '''
         course = self._lookup_course(locator)
-        items = self._get_parents_from_structure(locator.block_id, course['structure'])
-        return [BlockUsageLocator(
-                    url=locator.as_course_locator(),
-                    block_id=LocMapperStore.decode_key_from_mongo(parent_id),
-                )
-                for parent_id in items]
+        parent_id = self._get_parent_from_structure(locator.block_id, course['structure'])
+        if parent_id is None:
+            return None
+        return BlockUsageLocator.make_relative(
+            locator,
+            block_type=course['structure']['blocks'][parent_id].get('category'),
+            block_id=decode_key_from_mongo(parent_id),
+        )
 
-    def get_orphans(self, package_id, branch):
+    def get_orphans(self, course_key):
         """
-        Return a dict of all of the orphans in the course.
-
-        :param package_id:
+        Return an array of all of the orphans in the course.
         """
         detached_categories = [name for name, __ in XBlock.load_tagged_classes("detached")]
-        course = self._lookup_course(CourseLocator(package_id=package_id, branch=branch))
-        items = {LocMapperStore.decode_key_from_mongo(block_id) for block_id in course['structure']['blocks'].keys()}
+        course = self._lookup_course(course_key)
+        items = {decode_key_from_mongo(block_id) for block_id in course['structure']['blocks'].keys()}
         items.remove(course['structure']['root'])
-        for block_id, block_data in course['structure']['blocks'].iteritems():
+        blocks = course['structure']['blocks']
+        for block_id, block_data in blocks.iteritems():
             items.difference_update(block_data.get('fields', {}).get('children', []))
             if block_data['category'] in detached_categories:
-                items.discard(LocMapperStore.decode_key_from_mongo(block_id))
+                items.discard(decode_key_from_mongo(block_id))
         return [
-            BlockUsageLocator(package_id=package_id, branch=branch, block_id=block_id)
+            BlockUsageLocator(course_key=course_key, block_type=blocks[block_id]['category'], block_id=block_id)
             for block_id in items
         ]
 
@@ -468,7 +543,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         The index records the initial creation of the indexed course and tracks the current version
         heads. This function is primarily for test verification but may serve some
         more general purpose.
-        :param course_locator: must have a package_id set
+        :param course_locator: must have a org, course, and run set
         :return {'org': string,
             versions: {'draft': the head draft version id,
                 'published': the head published version id if any,
@@ -477,9 +552,9 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             'edited_on': when the course was originally created
         }
         """
-        if course_locator.package_id is None:
+        if not (course_locator.course and course_locator.run and course_locator.org):
             return None
-        index = self.db_connection.get_course_index(course_locator.package_id)
+        index = self.db_connection.get_course_index(course_locator)
         return index
 
     # TODO figure out a way to make this info accessible from the course descriptor
@@ -529,12 +604,13 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         if course_locator.version_guid is None:
             course = self._lookup_course(course_locator)
             version_guid = course['structure']['_id']
+            course_locator = course_locator.for_version(version_guid)
         else:
             version_guid = course_locator.version_guid
 
         # TODO if depth is significant, it may make sense to get all that have the same original_version
         # and reconstruct the subtree from version_guid
-        next_entries = self.db_connection.find_matching_structures({'previous_version' : version_guid})
+        next_entries = self.db_connection.find_matching_structures({'previous_version': version_guid})
         # must only scan cursor's once
         next_versions = [struct for struct in next_entries]
         result = {version_guid: [CourseLocator(version_guid=struct['_id']) for struct in next_versions]}
@@ -547,7 +623,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             for course_structure in next_versions:
                 result.setdefault(course_structure['previous_version'], []).append(
                     CourseLocator(version_guid=struct['_id']))
-        return VersionTree(CourseLocator(course_locator, version_guid=version_guid), result)
+        return VersionTree(course_locator, result)
 
 
     def get_block_generations(self, block_locator):
@@ -562,8 +638,12 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         course_struct = self._lookup_course(block_locator.course_agnostic())['structure']
         block_id = block_locator.block_id
         update_version_field = 'blocks.{}.edit_info.update_version'.format(block_id)
-        all_versions_with_block = self.db_connection.find_matching_structures({'original_version': course_struct['original_version'],
-            update_version_field: {'$exists': True}})
+        all_versions_with_block = self.db_connection.find_matching_structures(
+            {
+                'original_version': course_struct['original_version'],
+                update_version_field: {'$exists': True}
+            }
+        )
         # find (all) root versions and build map {previous: {successors}..}
         possible_roots = []
         result = {}
@@ -590,9 +670,14 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             return None
         # convert the results value sets to locators
         for k, versions in result.iteritems():
-            result[k] = [BlockUsageLocator(version_guid=version, block_id=block_id)
-                for version in versions]
-        return VersionTree(BlockUsageLocator(version_guid=possible_roots[0], block_id=block_id), result)
+            result[k] = [
+                block_locator.for_version(version)
+                for version in versions
+            ]
+        return VersionTree(
+            block_locator.for_version(possible_roots[0]),
+            result
+        )
 
     def get_definition_successors(self, definition_locator, version_history_depth=1):
         '''
@@ -608,11 +693,11 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         :param user_id: request.user object
         """
-        new_def_data = self._filter_special_fields(new_def_data)
+        new_def_data = self._serialize_fields(category, new_def_data)
         new_id = ObjectId()
         document = {
             '_id': new_id,
-            "category" : category,
+            "category": category,
             "fields": new_def_data,
             "edit_info": {
                 "edited_by": user_id,
@@ -623,7 +708,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             'schema_version': self.SCHEMA_VERSION,
         }
         self.db_connection.insert_definition(document)
-        definition_locator = DefinitionLocator(new_id)
+        definition_locator = DefinitionLocator(category, new_id)
         return definition_locator
 
     def update_definition_from_data(self, definition_locator, new_def_data, user_id):
@@ -633,7 +718,6 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         :param user_id: request.user
         """
-        new_def_data = self._filter_special_fields(new_def_data)
         def needs_saved():
             for key, value in new_def_data.iteritems():
                 if key not in old_definition['fields'] or value != old_definition['fields'][key]:
@@ -646,8 +730,9 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         # actual change b/c the descriptor and cache probably point to the same objects
         old_definition = self.db_connection.get_definition(definition_locator.definition_id)
         if old_definition is None:
-            raise ItemNotFoundError(definition_locator.url())
+            raise ItemNotFoundError(definition_locator)
 
+        new_def_data = self._serialize_fields(old_definition['category'], new_def_data)
         if needs_saved():
             # new id to create new version
             old_definition['_id'] = ObjectId()
@@ -658,7 +743,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             old_definition['edit_info']['previous_version'] = definition_locator.definition_id
             old_definition['schema_version'] = self.SCHEMA_VERSION
             self.db_connection.insert_definition(old_definition)
-            return DefinitionLocator(old_definition['_id']), True
+            return DefinitionLocator(old_definition['category'], old_definition['_id']), True
         else:
             return definition_locator, False
 
@@ -693,11 +778,12 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         :param course_or_parent_locator: If BlockUsageLocator, then it's assumed to be the parent.
         If it's a CourseLocator, then it's
-        merely the containing course.
+        merely the containing course. If it has a version_guid and a course org + course + run + branch, this
+        method ensures that the version is the head of the given course branch before making the change.
 
         raises InsufficientSpecificationError if there is no course locator.
-        raises VersionConflictError if package_id and version_guid given and the current version head != version_guid
-            and force is not True.
+        raises VersionConflictError if the version_guid of the course_or_parent_locator is not the head
+            of the its course unless force is true.
         :param force: fork the structure and don't update the course draftVersion if the above
         :param continue_revision: for multistep transactions, continue revising the given version rather than creating
         a new version. Setting force to True conflicts with setting this to True and will cause a VersionConflictError
@@ -722,11 +808,11 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         Rules for course locator:
 
-        * If the course locator specifies a package_id and either it doesn't
+        * If the course locator specifies a org and course and run and either it doesn't
           specify version_guid or the one it specifies == the current head of the branch,
           it progresses the course to point
           to the new head and sets the active version to point to the new head
-        * If the locator has a package_id but its version_guid != current head, it raises VersionConflictError.
+        * If the locator has a org and course and run but its version_guid != current head, it raises VersionConflictError.
 
         NOTE: using a version_guid will end up creating a new version of the course. Your new item won't be in
         the course id'd by version_guid but instead in one w/ a new version_guid. Ensure in this case that you get
@@ -754,7 +840,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         # generate usage id
         if block_id is not None:
-            if LocMapperStore.encode_key_for_mongo(block_id) in new_structure['blocks']:
+            if encode_key_for_mongo(block_id) in new_structure['blocks']:
                 raise DuplicateItemError(block_id, self, 'structures')
             else:
                 new_block_id = block_id
@@ -767,7 +853,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         self._update_block_in_structure(new_structure, new_block_id, {
             "category": category,
             "definition": definition_locator.definition_id,
-            "fields": block_fields,
+            "fields": self._serialize_fields(category, block_fields),
             'edit_info': {
                 'edited_on': datetime.datetime.now(UTC),
                 'edited_by': user_id,
@@ -779,7 +865,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         # if given parent, add new block as child and update parent's version
         parent = None
         if isinstance(course_or_parent_locator, BlockUsageLocator) and course_or_parent_locator.block_id is not None:
-            encoded_block_id = LocMapperStore.encode_key_for_mongo(course_or_parent_locator.block_id)
+            encoded_block_id = encode_key_for_mongo(course_or_parent_locator.block_id)
             parent = new_structure['blocks'][encoded_block_id]
             parent['fields'].setdefault('children', []).append(new_block_id)
             if not continue_version or parent['edit_info']['update_version'] != structure['_id']:
@@ -800,29 +886,54 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             if not continue_version:
                 self._update_head(index_entry, course_or_parent_locator.branch, new_id)
             item_loc = BlockUsageLocator(
-                package_id=course_or_parent_locator.package_id,
-                branch=course_or_parent_locator.branch,
+                course_or_parent_locator.version_agnostic(),
+                block_type=category,
                 block_id=new_block_id,
             )
         else:
             item_loc = BlockUsageLocator(
+                CourseLocator(version_guid=new_id),
+                block_type=category,
                 block_id=new_block_id,
-                version_guid=new_id,
             )
 
         # reconstruct the new_item from the cache
         return self.get_item(item_loc)
 
+    def clone_course(self, source_course_id, dest_course_id, user_id):
+        """
+        See :meth: `.ModuleStoreWrite.clone_course` for documentation.
+
+        In split, other than copying the assets, this is cheap as it merely creates a new version of the
+        existing course.
+        """
+        super(SplitMongoModuleStore, self).clone_course(source_course_id, dest_course_id, user_id)
+        source_index = self.get_course_index_info(source_course_id)
+        return self.create_course(
+            dest_course_id.org, dest_course_id.course, dest_course_id.run, user_id, fields=None,  # override start_date?
+            versions_dict=source_index['versions']
+        )
+
     def create_course(
-        self, course_id, org, user_id, fields=None,
-        master_branch='draft', versions_dict=None, root_category='course',
-        root_block_id='course'
+        self, org, course, run, user_id, fields=None,
+        master_branch=ModuleStoreEnum.BranchName.draft,
+        versions_dict=None, root_category='course',
+        root_block_id='course', **kwargs
     ):
         """
         Create a new entry in the active courses index which points to an existing or new structure. Returns
         the course root of the resulting entry (the location has the course id)
 
-        course_id: If it's already taken, this method will raise DuplicateCourseError
+        Arguments:
+
+            org (str): the organization that owns the course
+            course (str): the course number of the course
+            run (str): the particular run of the course (e.g. 2013_T1)
+            user_id: id of the user creating the course
+            fields (dict): Fields to set on the course at initialization
+            kwargs: Any optional arguments understood by a subset of modulestores to customize instantiation
+
+        course + run: If there are duplicates, this method will raise DuplicateCourseError
 
         fields: if scope.settings fields provided, will set the fields of the root course object in the
         new course. If both
@@ -840,24 +951,25 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         when
         loaded.
 
-        master_branch: the tag (key) for the version name in the dict which is the 'draft' version. Not the actual
+        master_branch: the tag (key) for the version name in the dict which is the DRAFT version. Not the actual
         version guid, but what to call it.
 
-        versions_dict: the starting version ids where the keys are the tags such as 'draft' and 'published'
+        versions_dict: the starting version ids where the keys are the tags such as DRAFT and PUBLISHED
         and the values are structure guids. If provided, the new course will reuse this version (unless you also
         provide any fields overrides, see above). if not provided, will create a mostly empty course
         structure with just a category course root xblock.
         """
-        # check course_id's uniqueness
-        index = self.db_connection.get_course_index(course_id)
+        # check course and run's uniqueness
+        locator = CourseLocator(org=org, course=course, run=run, branch=master_branch)
+        index = self.db_connection.get_course_index(locator)
         if index is not None:
-            raise DuplicateCourseError(course_id, index)
+            raise DuplicateCourseError(locator, index)
 
         partitioned_fields = self.partition_fields_by_scope(root_category, fields)
         block_fields = partitioned_fields.setdefault(Scope.settings, {})
         if Scope.children in partitioned_fields:
             block_fields.update(partitioned_fields[Scope.children])
-        definition_fields = self._filter_special_fields(partitioned_fields.get(Scope.content, {}))
+        definition_fields = self._serialize_fields(root_category, partitioned_fields.get(Scope.content, {}))
 
         # build from inside out: definition, structure, index entry
         # if building a wholly new structure
@@ -897,10 +1009,10 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             if definition_fields or block_fields:
                 draft_structure = self._version_structure(draft_structure, user_id)
                 new_id = draft_structure['_id']
-                encoded_block_id = LocMapperStore.encode_key_for_mongo(draft_structure['root'])
+                encoded_block_id = encode_key_for_mongo(draft_structure['root'])
                 root_block = draft_structure['blocks'][encoded_block_id]
                 if block_fields is not None:
-                    root_block['fields'].update(block_fields)
+                    root_block['fields'].update(self._serialize_fields(root_category, block_fields))
                 if definition_fields is not None:
                     definition = self.db_connection.get_definition(root_block['definition'])
                     definition['fields'].update(definition_fields)
@@ -920,15 +1032,17 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
                 versions_dict[master_branch] = new_id
 
         index_entry = {
-            '_id': course_id,
+            '_id': ObjectId(),
             'org': org,
+            'course': course,
+            'run': run,
             'edited_by': user_id,
             'edited_on': datetime.datetime.now(UTC),
             'versions': versions_dict,
             'schema_version': self.SCHEMA_VERSION,
         }
         self.db_connection.insert_course_index(index_entry)
-        return self.get_course(CourseLocator(package_id=course_id, branch=master_branch))
+        return self.get_course(locator)
 
     def update_item(self, descriptor, user_id, allow_not_found=False, force=False):
         """
@@ -937,7 +1051,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         raises ItemNotFoundError if the location does not exist.
 
-        Creates a new course version. If the descriptor's location has a package_id, it moves the course head
+        Creates a new course version. If the descriptor's location has a org and course and run, it moves the course head
         pointer. If the version_guid of the descriptor points to a non-head version and there's been an intervening
         change to this item, it raises a VersionConflictError unless force is True. In the force case, it forks
         the course but leaves the head pointer where it is (this change will not be in the course head).
@@ -950,17 +1064,20 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         descriptor.definition_locator, is_updated = self.update_definition_from_data(
             descriptor.definition_locator, descriptor.get_explicitly_set_fields_by_scope(Scope.content), user_id)
-        # check children
+
         original_entry = self._get_block_from_structure(original_structure, descriptor.location.block_id)
-        is_updated = is_updated or (
-            descriptor.has_children and original_entry['fields'].get('children', []) != descriptor.children
-        )
         # check metadata
+        settings = descriptor.get_explicitly_set_fields_by_scope(Scope.settings)
+        settings = self._serialize_fields(descriptor.category, settings)
         if not is_updated:
-            is_updated = self._compare_settings(
-                descriptor.get_explicitly_set_fields_by_scope(Scope.settings),
-                original_entry['fields']
-            )
+            is_updated = self._compare_settings(settings, original_entry['fields'])
+
+        # check children
+        if descriptor.has_children:
+            serialized_children = [child.block_id for child in descriptor.children]
+            is_updated = is_updated or original_entry['fields'].get('children', []) != serialized_children
+            if is_updated:
+                settings['children'] = serialized_children
 
         # if updated, rev the structure
         if is_updated:
@@ -968,9 +1085,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             block_data = self._get_block_from_structure(new_structure, descriptor.location.block_id)
 
             block_data["definition"] = descriptor.definition_locator.definition_id
-            block_data["fields"] = descriptor.get_explicitly_set_fields_by_scope(Scope.settings)
-            if descriptor.has_children:
-                block_data['fields']["children"] = descriptor.children
+            block_data["fields"] = settings
 
             new_id = new_structure['_id']
             block_data['edit_info'] = {
@@ -983,10 +1098,18 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             # update the index entry if appropriate
             if index_entry is not None:
                 self._update_head(index_entry, descriptor.location.branch, new_id)
+                course_key = CourseLocator(
+                    org=index_entry['org'],
+                    course=index_entry['course'],
+                    run=index_entry['run'],
+                    branch=descriptor.location.branch,
+                    version_guid=new_id
+                )
+            else:
+                course_key = CourseLocator(version_guid=new_id)
 
             # fetch and return the new item--fetching is unnecessary but a good qc step
-            new_locator = BlockUsageLocator(descriptor.location)
-            new_locator.version_guid = new_id
+            new_locator = descriptor.location.map_into_course(course_key)
             return self.get_item(new_locator)
         else:
             # nothing changed, just return the one sent in
@@ -1058,20 +1181,14 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
                 self._update_head(index_entry, xblock.location.branch, new_id)
 
             # fetch and return the new item--fetching is unnecessary but a good qc step
-            return self.get_item(
-                BlockUsageLocator(
-                    package_id=xblock.location.package_id,
-                    block_id=xblock.location.block_id,
-                    branch=xblock.location.branch,
-                    version_guid=new_id
-                )
-            )
+            return self.get_item(xblock.location.for_version(new_id))
         else:
             return xblock
 
     def _persist_subdag(self, xblock, user_id, structure_blocks, new_id):
         # persist the definition if persisted != passed
-        new_def_data = self._filter_special_fields(xblock.get_explicitly_set_fields_by_scope(Scope.content))
+        new_def_data = self._serialize_fields(xblock.category, xblock.get_explicitly_set_fields_by_scope(Scope.content))
+        is_updated = False
         if xblock.definition_locator is None or isinstance(xblock.definition_locator.definition_id, LocalId):
             xblock.definition_locator = self.create_definition_from_data(
                 new_def_data, xblock.category, user_id)
@@ -1087,14 +1204,12 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             block_id = getattr(xblock.scope_ids.usage_id.block_id, 'block_id', None)
             if block_id is None:
                 block_id = self._generate_block_id(structure_blocks, xblock.category)
-            encoded_block_id = LocMapperStore.encode_key_for_mongo(block_id)
-            xblock.scope_ids.usage_id.block_id = block_id
+            encoded_block_id = encode_key_for_mongo(block_id)
+            new_usage_id = xblock.scope_ids.usage_id.replace(block_id=block_id)
+            xblock.scope_ids = xblock.scope_ids._replace(usage_id=new_usage_id)  # pylint: disable=protected-access
         else:
             is_new = False
-            encoded_block_id = LocMapperStore.encode_key_for_mongo(xblock.location.block_id)
-            is_updated = is_updated or (
-                xblock.has_children and structure_blocks[encoded_block_id]['fields']['children'] != xblock.children
-            )
+            encoded_block_id = encode_key_for_mongo(xblock.location.block_id)
 
         children = []
         if xblock.has_children:
@@ -1104,9 +1219,11 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
                     is_updated = self._persist_subdag(child_block, user_id, structure_blocks, new_id) or is_updated
                     children.append(child_block.location.block_id)
                 else:
-                    children.append(child)
+                    children.append(child.block_id)
+            is_updated = is_updated or structure_blocks[encoded_block_id]['fields']['children'] != children
 
         block_fields = xblock.get_explicitly_set_fields_by_scope(Scope.settings)
+        block_fields = self._serialize_fields(xblock.category, block_fields)
         if not is_new and not is_updated:
             is_updated = self._compare_settings(block_fields, structure_blocks[encoded_block_id]['fields'])
         if children:
@@ -1170,48 +1287,54 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         Note, if the branch doesn't exist, then the source_course structure's root must be in subtree_list;
         otherwise, the publish will violate the parents must exist rule.
 
-        :param subtree_list: a list of xblock ids whose subtrees to publish. The ids can be the block
-        id or BlockUsageLocator. If a Locator and if the Locator's course id != source_course, this will
-        raise InvalidLocationError(locator)
+        :param subtree_list: a list of usage keys whose subtrees to publish.
 
-        :param blacklist: a list of xblock ids to not change in the destination: i.e., don't add
+        :param blacklist: a list of usage keys to not change in the destination: i.e., don't add
         if not there, don't update if there.
+
+        Raises:
+            ItemNotFoundError: if it cannot find the course. if the request is to publish a
+                subtree but the ancestors up to and including the course root are not published.
         """
         # get the destination's index, and source and destination structures.
         source_structure = self._lookup_course(source_course)['structure']
-        index_entry = self.db_connection.get_course_index(destination_course.package_id)
+        index_entry = self.db_connection.get_course_index(destination_course)
         if index_entry is None:
             # brand new course
             raise ItemNotFoundError(destination_course)
         if destination_course.branch not in index_entry['versions']:
             # must be publishing the dag root if there's no current dag
-            if source_structure['root'] not in subtree_list:
-                raise ItemNotFoundError(source_structure['root'])
+            root_block_id = source_structure['root']
+            if not any(root_block_id == subtree.block_id for subtree in subtree_list):
+                raise ItemNotFoundError(u'Must publish course root {}'.format(root_block_id))
             # create branch
-            destination_structure = self._new_structure(user_id, source_structure['root'])
+            destination_structure = self._new_structure(user_id, root_block_id)
         else:
             destination_structure = self._lookup_course(destination_course)['structure']
             destination_structure = self._version_structure(destination_structure, user_id)
 
+        blacklist = [shunned.block_id for shunned in blacklist or []]
         # iterate over subtree list filtering out blacklist.
         orphans = set()
         destination_blocks = destination_structure['blocks']
         for subtree_root in subtree_list:
-            # find the parents and put root in the right sequence
-            parents = self._get_parents_from_structure(subtree_root, source_structure)
-            if not all(parent in destination_blocks for parent in parents):
-                raise ItemNotFoundError(parents)
-            for parent_loc in parents:
-                orphans.update(
-                    self._sync_children(
-                        source_structure['blocks'][parent_loc],
-                        destination_blocks[parent_loc],
-                        subtree_root
-                ))
+            if subtree_root.block_id != source_structure['root']:
+                # find the parents and put root in the right sequence
+                parent = self._get_parent_from_structure(subtree_root.block_id, source_structure)
+                if parent is not None:  # may be a detached category xblock
+                    if not parent in destination_blocks:
+                        raise ItemNotFoundError(parent)
+                    orphans.update(
+                        self._sync_children(
+                            source_structure['blocks'][parent],
+                            destination_blocks[parent],
+                            subtree_root.block_id
+                        )
+                    )
             # update/create the subtree and its children in destination (skipping blacklist)
             orphans.update(
                 self._publish_subdag(
-                    user_id, subtree_root, source_structure['blocks'], destination_blocks, blacklist or []
+                    user_id, subtree_root.block_id, source_structure['blocks'], destination_blocks, blacklist
                 )
             )
         # remove any remaining orphans
@@ -1223,6 +1346,10 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         self.db_connection.insert_structure(destination_structure)
         self._update_head(index_entry, destination_course.branch, destination_structure['_id'])
 
+    def unpublish(self, location, user_id):
+        published_location = location.replace(branch=ModuleStoreEnum.BranchName.published)
+        self.delete_item(published_location, user_id)
+
     def update_course_index(self, updated_index_entry):
         """
         Change the given course's index entry.
@@ -1233,8 +1360,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         """
         self.db_connection.update_course_index(updated_index_entry)
 
-    # TODO impl delete_all_versions
-    def delete_item(self, usage_locator, user_id, delete_all_versions=False, delete_children=False, force=False):
+    def delete_item(self, usage_locator, user_id, force=False):
         """
         Delete the block or tree rooted at block (if delete_children) and any references w/in the course to the block
         from a new version of the course structure.
@@ -1244,78 +1370,80 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         raises ItemNotFoundError if the location does not exist.
         raises ValueError if usage_locator points to the structure root
 
-        Creates a new course version. If the descriptor's location has a package_id, it moves the course head
+        Creates a new course version. If the descriptor's location has a org, a course, and a run, it moves the course head
         pointer. If the version_guid of the descriptor points to a non-head version and there's been an intervening
         change to this item, it raises a VersionConflictError unless force is True. In the force case, it forks
         the course but leaves the head pointer where it is (this change will not be in the course head).
         """
-        assert isinstance(usage_locator, BlockUsageLocator) and usage_locator.is_initialized()
-        original_structure = self._lookup_course(usage_locator)['structure']
+        assert isinstance(usage_locator, BlockUsageLocator)
+        original_structure = self._lookup_course(usage_locator.course_key)['structure']
         if original_structure['root'] == usage_locator.block_id:
             raise ValueError("Cannot delete the root of a course")
         index_entry = self._get_index_if_valid(usage_locator, force)
         new_structure = self._version_structure(original_structure, user_id)
         new_blocks = new_structure['blocks']
         new_id = new_structure['_id']
-        parents = self.get_parent_locations(usage_locator)
-        for parent in parents:
-            encoded_block_id = LocMapperStore.encode_key_for_mongo(parent.block_id)
-            parent_block = new_blocks[encoded_block_id]
-            parent_block['fields']['children'].remove(usage_locator.block_id)
-            parent_block['edit_info']['edited_on'] = datetime.datetime.now(UTC)
-            parent_block['edit_info']['edited_by'] = user_id
-            parent_block['edit_info']['previous_version'] = parent_block['edit_info']['update_version']
-            parent_block['edit_info']['update_version'] = new_id
+        encoded_block_id = self._get_parent_from_structure(usage_locator.block_id, original_structure)
+        parent_block = new_blocks[encoded_block_id]
+        parent_block['fields']['children'].remove(usage_locator.block_id)
+        parent_block['edit_info']['edited_on'] = datetime.datetime.now(UTC)
+        parent_block['edit_info']['edited_by'] = user_id
+        parent_block['edit_info']['previous_version'] = parent_block['edit_info']['update_version']
+        parent_block['edit_info']['update_version'] = new_id
 
         def remove_subtree(block_id):
             """
             Remove the subtree rooted at block_id
             """
-            encoded_block_id = LocMapperStore.encode_key_for_mongo(block_id)
+            encoded_block_id = encode_key_for_mongo(block_id)
             for child in new_blocks[encoded_block_id]['fields'].get('children', []):
                 remove_subtree(child)
             del new_blocks[encoded_block_id]
-        if delete_children:
-            remove_subtree(usage_locator.block_id)
-        else:
-            del new_blocks[LocMapperStore.encode_key_for_mongo(usage_locator.block_id)]
+
+        remove_subtree(usage_locator.block_id)
 
         # update index if appropriate and structures
         self.db_connection.insert_structure(new_structure)
 
-        result = CourseLocator(version_guid=new_id)
-
-        # update the index entry if appropriate
         if index_entry is not None:
+            # update the index entry if appropriate
             self._update_head(index_entry, usage_locator.branch, new_id)
-            result.package_id = usage_locator.package_id
-            result.branch = usage_locator.branch
+            result = usage_locator.course_key.for_version(new_id)
+        else:
+            result = CourseLocator(version_guid=new_id)
 
         return result
 
-    def delete_course(self, package_id):
+    def delete_course(self, course_key, user_id):
         """
         Remove the given course from the course index.
 
         Only removes the course from the index. The data remains. You can use create_course
         with a versions hash to restore the course; however, the edited_on and
         edited_by won't reflect the originals, of course.
-
-        :param package_id: uses package_id rather than locator to emphasize its global effect
         """
-        index = self.db_connection.get_course_index(package_id)
+        index = self.db_connection.get_course_index(course_key)
         if index is None:
-            raise ItemNotFoundError(package_id)
+            raise ItemNotFoundError(course_key)
         # this is the only real delete in the system. should it do something else?
-        log.info(u"deleting course from split-mongo: %s", package_id)
-        self.db_connection.delete_course_index(index['_id'])
+        log.info(u"deleting course from split-mongo: %s", course_key)
+        self.db_connection.delete_course_index(index)
 
-    def get_errored_courses(self):
+        # We do NOT call the super class here since we need to keep the assets
+        # in case the course is later restored.
+        # super(SplitMongoModuleStore, self).delete_course(course_key, user_id)
+
+    def revert_to_published(self, location, user_id=None):
         """
-        This function doesn't make sense for the mongo modulestore, as structures
-        are loaded on demand, rather than up front
+        Reverts an item to its last published version (recursively traversing all of its descendants).
+        If no published version exists, a VersionConflictError is thrown.
+
+        If a published version exists but there is no draft version of this item or any of its descendants, this
+        method is a no-op.
+
+        :raises InvalidVersionError: if no published version exists for the location specified
         """
-        return {}
+        raise NotImplementedError()
 
     def inherit_settings(self, block_map, block_json, inheriting_settings=None):
         """
@@ -1342,7 +1470,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
 
         for child in block_fields.get('children', []):
             try:
-                child = LocMapperStore.encode_key_for_mongo(child)
+                child = encode_key_for_mongo(child)
                 self.inherit_settings(block_map, block_map[child], inheriting_settings)
             except KeyError:
                 # here's where we need logic for looking up in other structures when we allow cross pointers
@@ -1357,7 +1485,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         (0 => this usage only, 1 => this usage and its children, etc...)
         A depth of None returns all descendants
         """
-        encoded_block_id = LocMapperStore.encode_key_for_mongo(block_id)
+        encoded_block_id = encode_key_for_mongo(block_id)
         if encoded_block_id not in block_map:
             return descendent_map
 
@@ -1380,19 +1508,18 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         if isinstance(definition, DefinitionLazyLoader):
             return definition.definition_locator
         elif '_id' not in definition:
-            return DefinitionLocator(LocalId())
+            return DefinitionLocator(definition.get('category'), LocalId())
         else:
-            return DefinitionLocator(definition['_id'])
+            return DefinitionLocator(definition['category'], definition['_id'])
 
-    def get_modulestore_type(self, course_id):
+    def get_modulestore_type(self, course_key=None):
         """
-        Returns an enumeration-like type reflecting the type of this modulestore
-        The return can be one of:
-        "xml" (for XML based courses),
-        "mongo" for old-style MongoDB backed courses,
-        "split" for new-style split MongoDB backed courses.
+        Returns an enumeration-like type reflecting the type of this modulestore, per ModuleStoreEnum.Type.
+
+        Args:
+            course_key: just for signature compatibility
         """
-        return SPLIT_MONGO_MODULESTORE_TYPE
+        return ModuleStoreEnum.Type.split
 
     def internal_clean_children(self, course_locator):
         """
@@ -1407,43 +1534,52 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             if 'fields' in block and 'children' in block['fields']:
                 block['fields']["children"] = [
                     block_id for block_id in block['fields']["children"]
-                    if LocMapperStore.encode_key_for_mongo(block_id) in original_structure['blocks']
+                    if encode_key_for_mongo(block_id) in original_structure['blocks']
                 ]
         self.db_connection.update_structure(original_structure)
         # clear cache again b/c inheritance may be wrong over orphans
         self._clear_cache(original_structure['_id'])
 
-    def _block_matches(self, value, qualifiers):
-        '''
-        Return True or False depending on whether the value (block contents)
-        matches the qualifiers as per get_items
-        :param value:
-        :param qualifiers:
-        '''
-        for key, criteria in qualifiers.iteritems():
-            if key in value:
-                target = value[key]
-                if not self._value_matches(target, criteria):
-                    return False
-            elif criteria is not None:
-                return False
-        return True
+    def convert_references_to_keys(self, course_key, xblock_class, jsonfields, blocks):
+        """
+        Convert the given serialized fields to the deserialized values by finding all references
+        and converting them.
+        :param jsonfields: the serialized copy of the xblock's fields
+        """
+        def robust_usage_key(block_id):
+            """
+            create a course_key relative usage key for the block_id. If the block_id is in blocks,
+            use its correct category; otherwise, use 'unknown'.
+            The purpose for this is that some operations add pointers as they build up the
+            structure without worrying about order of creation. Because the category of the
+            usage_key is for the most part inert, it's better to hack a value than to work
+            out a dependency graph algorithm for those functions which may prereference blocks.
+            """
+            # if this was taken from cache, then its fields are already converted
+            if isinstance(block_id, BlockUsageLocator):
+                return block_id.map_into_course(course_key)
+            try:
+                return course_key.make_usage_key(
+                    blocks[encode_key_for_mongo(block_id)]['category'], block_id
+                )
+            except KeyError:
+                return course_key.make_usage_key('unknown', block_id)
 
-    def _value_matches(self, target, criteria):
-        ''' helper for _block_matches '''
-        if isinstance(target, list):
-            return any(self._value_matches(ele, criteria)
-                for ele in target)
-        elif isinstance(criteria, dict):
-            if '$regex' in criteria:
-                return re.search(criteria['$regex'], target) is not None
-            elif not isinstance(target, dict):
-                return False
-            else:
-                return (isinstance(target, dict) and
-                        self._block_matches(target, criteria))
-        else:
-            return criteria == target
+        xblock_class = self.mixologist.mix(xblock_class)
+        for field_name, value in jsonfields.iteritems():
+            if value:
+                field = xblock_class.fields.get(field_name)
+                if field is None:
+                    continue
+                elif isinstance(field, Reference):
+                    jsonfields[field_name] = robust_usage_key(value)
+                elif isinstance(field, ReferenceList):
+                    jsonfields[field_name] = [robust_usage_key(ele) for ele in value]
+                elif isinstance(field, ReferenceValueDict):
+                    for key, subvalue in value.iteritems():
+                        assert isinstance(subvalue, basestring)
+                        value[key] = robust_usage_key(subvalue)
+        return jsonfields
 
     def _get_index_if_valid(self, locator, force=False, continue_version=False):
         """
@@ -1458,7 +1594,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         :param continue_version: if True, assumes this operation requires a head version and will not create a new
         version but instead continue an existing transaction on this version. This flag cannot be True if force is True.
         """
-        if locator.package_id is None or locator.branch is None:
+        if locator.org is None or locator.course is None or locator.run is None or locator.branch is None:
             if continue_version:
                 raise InsufficientSpecificationError(
                     "To continue a version, the locator must point to one ({}).".format(locator)
@@ -1466,7 +1602,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             else:
                 return None
         else:
-            index_entry = self.db_connection.get_course_index(locator.package_id)
+            index_entry = self.db_connection.get_course_index(locator)
             is_head = (
                 locator.version_guid is None or
                 index_entry['versions'][locator.branch] == locator.version_guid
@@ -1515,15 +1651,35 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         index_entry['versions'][branch] = new_id
         self.db_connection.update_course_index(index_entry)
 
-    def _filter_special_fields(self, fields):
+    def _serialize_fields(self, category, fields):
         """
+        Convert any references to their serialized form.
+
         Remove any fields which split or its kvs computes or adds but does not want persisted.
 
         :param fields: a dict of fields
         """
+        assert isinstance(fields, dict)
+        xblock_class = XBlock.load_class(category, self.default_class)
+        xblock_class = self.mixologist.mix(xblock_class)
+        for field_name, value in fields.iteritems():
+            if value:
+                if isinstance(xblock_class.fields[field_name], Reference):
+                    fields[field_name] = value.block_id
+                elif isinstance(xblock_class.fields[field_name], ReferenceList):
+                    fields[field_name] = [
+                        ele.block_id for ele in value
+                    ]
+                elif isinstance(xblock_class.fields[field_name], ReferenceValueDict):
+                    for key, subvalue in value.iteritems():
+                        value[key] = subvalue.block_id
+
+        # I think these are obsolete conditions; so, I want to confirm that. Thus the warnings
         if 'location' in fields:
+            log.warn('attempt to persist location')
             del fields['location']
         if 'category' in fields:
+            log.warn('attempt to persist category')
             del fields['category']
         return fields
 
@@ -1536,7 +1692,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         """
         new_id = ObjectId()
         if root_category is not None:
-            encoded_root = LocMapperStore.encode_key_for_mongo(root_block_id)
+            encoded_root = encode_key_for_mongo(root_block_id)
             blocks = {
                 encoded_root: self._new_block(
                     user_id, root_category, block_fields, definition_id, new_id
@@ -1555,18 +1711,16 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
             'schema_version': self.SCHEMA_VERSION,
         }
 
-    def _get_parents_from_structure(self, block_id, structure):
+    def _get_parent_from_structure(self, block_id, structure):
         """
-        Given a structure, find all of block_id's parents in that structure. Note returns
+        Given a structure, find block_id's parent in that structure. Note returns
         the encoded format for parent
         """
-        items = []
         for parent_id, value in structure['blocks'].iteritems():
             for child_id in value['fields'].get('children', []):
                 if block_id == child_id:
-                    items.append(parent_id)
-
-        return items
+                    return parent_id
+        return None
 
     def _sync_children(self, source_parent, destination_parent, new_child):
         """
@@ -1596,7 +1750,7 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         Return any newly discovered orphans (as a set)
         """
         orphans = set()
-        encoded_block_id = LocMapperStore.encode_key_for_mongo(block_id)
+        encoded_block_id = encode_key_for_mongo(block_id)
         destination_block = destination_blocks.get(encoded_block_id)
         new_block = source_blocks[encoded_block_id]
         if destination_block:
@@ -1617,7 +1771,8 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
                 user_id, new_block['category'],
                 self._filter_blacklist(copy.copy(new_block['fields']), blacklist),
                 new_block['definition'],
-                new_block['edit_info']['update_version']
+                new_block['edit_info']['update_version'],
+                raw=True
             )
         for child in destination_block['fields'].get('children', []):
             if child not in blacklist:
@@ -1637,13 +1792,23 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         """
         Delete the orphan and any of its descendants which no longer have parents.
         """
-        if not self._get_parents_from_structure(orphan, structure):
-            encoded_block_id = LocMapperStore.encode_key_for_mongo(orphan)
+        if self._get_parent_from_structure(orphan, structure) is None:
+            encoded_block_id = encode_key_for_mongo(orphan)
             for child in structure['blocks'][encoded_block_id]['fields'].get('children', []):
                 self._delete_if_true_orphan(child, structure)
             del structure['blocks'][encoded_block_id]
 
-    def _new_block(self, user_id, category, block_fields, definition_id, new_id):
+    def _new_block(self, user_id, category, block_fields, definition_id, new_id, raw=False):
+        """
+        Create the core document structure for a block.
+
+        :param block_fields: the settings and children scoped fields as a dict or son
+        :param definition_id: the pointer to the content scoped fields
+        :param new_id: the structure's version id
+        :param raw: true if this block already has all references serialized
+        """
+        if not raw:
+            block_fields = self._serialize_fields(category, block_fields)
         return {
             'category': category,
             'definition': definition_id,
@@ -1661,14 +1826,14 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         Encodes the block id before retrieving it from the structure to ensure it can
         be a json dict key.
         """
-        return structure['blocks'].get(LocMapperStore.encode_key_for_mongo(block_id))
+        return structure['blocks'].get(encode_key_for_mongo(block_id))
 
     def _update_block_in_structure(self, structure, block_id, content):
         """
         Encodes the block id before accessing it in the structure to ensure it can
         be a json dict key.
         """
-        structure['blocks'][LocMapperStore.encode_key_for_mongo(block_id)] = content
+        structure['blocks'][encode_key_for_mongo(block_id)] = content
 
     def get_courses_for_wiki(self, wiki_slug):
         """
@@ -1680,3 +1845,53 @@ class SplitMongoModuleStore(ModuleStoreWriteBase):
         """
         courses = []
         return courses
+
+    def heartbeat(self):
+        """
+        Check that the db is reachable.
+        """
+        return {ModuleStoreEnum.Type.split: self.db_connection.heartbeat()}
+
+
+    def compute_publish_state(self, xblock):
+        """
+        Returns whether this xblock is draft, public, or private.
+
+        Returns:
+            PublishState.draft - published exists and is different from draft
+            PublishState.public - published exists and is the same as draft
+            PublishState.private - no published version exists
+        """
+        # TODO figure out what to say if xblock is not from the HEAD of its branch
+        def get_head(branch):
+            course_structure = self._lookup_course(xblock.location.course_key.for_branch(branch))['structure']
+            return self._get_block_from_structure(course_structure, xblock.location.block_id)
+
+        if xblock.location.branch is None:
+            raise ValueError(u'{} is not in a branch; so, this is nonsensical'.format(xblock.location))
+        if xblock.location.branch == ModuleStoreEnum.BranchName.draft:
+            other = get_head(ModuleStoreEnum.BranchName.published)
+        elif xblock.location.branch == ModuleStoreEnum.BranchName.published:
+            other = get_head(ModuleStoreEnum.BranchName.draft)
+        else:
+            raise ValueError(u'{} is not in a branch other than draft or published; so, this is nonsensical'.format(xblock.location))
+
+        if not other:
+            if xblock.location.branch == ModuleStoreEnum.BranchName.draft:
+                return PublishState.private
+            else:
+                return PublishState.public  # a bit nonsensical
+        elif xblock.update_version != other['edit_info']['update_version']:
+            return PublishState.draft
+        else:
+            return PublishState.public
+
+
+def convert_to_draft(self, location, user_id):
+        """
+        Create a copy of the source and mark its revision as draft.
+
+        :param source: the location of the source (its revision must be None)
+        """
+        # This is a no-op in Split since a draft version of the data always remains
+        pass

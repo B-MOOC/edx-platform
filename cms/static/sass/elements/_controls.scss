@@ -1,6 +1,21 @@
 // studio - elements - UI controls
 // ====================
 
+// ====================
+
+// general actions
+%action {
+  @extend %ui-fake-link;
+
+  &.is-disabled {
+    @extend %ui-disabled;
+    -webkit-filter: grayscale(65%);
+    opacity: 0.65;
+  }
+}
+
+// ====================
+
 // gray primary button
 %btn-primary-gray {
   @extend %ui-btn-primary;
@@ -212,11 +227,13 @@
 
   .action-item {
     display: inline-block;
+    vertical-align: middle;
 
     .action-button {
+      @include transition(all $tmg-f3 linear 0s);
+      display: block;
       border-radius: 3px;
-      padding: ($baseline/4) ($baseline/2);
-      height: ($baseline*1.5);
+      padding: 3px ($baseline/2);
       color: $gray-l1;
 
       &:hover {
@@ -232,6 +249,15 @@
       &.delete-button:hover {
         background-color: $gray-l1;
       }
+    }
+
+    .drag-handle {
+      display: block;
+      float: none;
+      height: ($baseline*1.2);
+      width: ($baseline);
+      margin: 0;
+      background: transparent url("../img/drag-handles.png") no-repeat right center;
     }
   }
 }

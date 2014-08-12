@@ -1,15 +1,15 @@
 # pylint: disable=C0111
 
 from lettuce import world, step
-from xmodule.modulestore import Location
-from contentstore.utils import get_modulestore
 from selenium.webdriver.common.keys import Keys
+from xmodule.modulestore.django import modulestore
 
 VIDEO_BUTTONS = {
     'CC': '.hide-subtitles',
     'volume': '.volume',
     'play': '.video_control.play',
     'pause': '.video_control.pause',
+    'handout': '.video-handout.video-download-button a',
 }
 
 SELECTORS = {
@@ -19,7 +19,6 @@ SELECTORS = {
 
 # We should wait 300 ms for event handler invocation + 200ms for safety.
 DELAY = 0.5
-
 
 @step('youtube stub server (.*) YouTube API')
 def configure_youtube_api(_step, action):
@@ -31,14 +30,9 @@ def configure_youtube_api(_step, action):
     else:
         raise ValueError('Parameter `action` should be one of "proxies" or "blocks".')
 
-
-@step('We explicitly wait for YouTube API to not load$')
-def wait_for_youtube_api_fail(_step):
-    world.wait(3)
-
-
 @step('I have created a Video component$')
 def i_created_a_video_component(_step):
+
     world.create_course_with_unit()
     world.create_component_instance(
         step=_step,
@@ -51,7 +45,8 @@ def i_created_a_video_component(_step):
     world.wait_for_present('.is-initialized')
     world.wait(DELAY)
     world.wait_for_invisible(SELECTORS['spinner'])
-
+    if not world.youtube.config.get('youtube_api_blocked'):
+        world.wait_for_visible(SELECTORS['controls'])
 
 @step('I have created a Video component with subtitles$')
 def i_created_a_video_with_subs(_step):
@@ -141,10 +136,10 @@ def xml_only_video(step):
     # Wait for the new unit to be created and to load the page
     world.wait(1)
 
-    location = world.scenario_dict['COURSE'].location
-    store = get_modulestore(location)
+    course = world.scenario_dict['COURSE']
+    store = modulestore()
 
-    parent_location = store.get_items(Location(category='vertical', revision='draft'))[0].location
+    parent_location = store.get_items(course.id, category='vertical')[0].location
 
     youtube_id = 'ABCDEFG'
     world.scenario_dict['YOUTUBE_ID'] = youtube_id
@@ -155,7 +150,8 @@ def xml_only_video(step):
     world.ItemFactory.create(
         parent_location=parent_location,
         category='video',
-        data='<video youtube="1.00:%s"></video>' % youtube_id
+        data='<video youtube="1.00:%s"></video>' % youtube_id,
+        modulestore=store,
     )
 
 
@@ -170,7 +166,7 @@ def set_captions_visibility_state(_step, captions_state):
     SELECTOR = '.closed .subtitles'
     world.wait_for_visible('.hide-subtitles')
     if captions_state == 'closed':
-        if not world.is_css_present(SELECTOR):
+        if world.is_css_not_present(SELECTOR):
             world.css_find('.hide-subtitles').click()
     else:
         if world.is_css_present(SELECTOR):
@@ -197,11 +193,15 @@ def find_caption_line_by_data_index(index):
 
 @step('I focus on caption line with data-index "([^"]*)"$')
 def focus_on_caption_line(_step, index):
+    world.wait_for_present('.video.is-captions-rendered')
+    world.wait_for(lambda _: world.css_text('.subtitles'), timeout=30)
     find_caption_line_by_data_index(int(index.strip()))._element.send_keys(Keys.TAB)
 
 
 @step('I press "enter" button on caption line with data-index "([^"]*)"$')
 def click_on_the_caption(_step, index):
+    world.wait_for_present('.video.is-captions-rendered')
+    world.wait_for(lambda _: world.css_text('.subtitles'), timeout=30)
     find_caption_line_by_data_index(int(index.strip()))._element.send_keys(Keys.ENTER)
 
 
@@ -214,7 +214,6 @@ def caption_line_has_class(_step, index, className):
 @step('I see a range on slider$')
 def see_a_range_slider_with_proper_range(_step):
     world.wait_for_visible(VIDEO_BUTTONS['pause'])
-
     assert world.css_visible(".slider-range")
 
 

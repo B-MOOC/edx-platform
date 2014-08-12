@@ -17,16 +17,13 @@ from django.core.urlresolvers import reverse
 
 <div class="cta cta-help">
   <h3>${_("Not Enrolled?")}</h3>
-  <p><a href="${reverse('register_user')}">
-  Inscrivez-vous dès maintenant à l'université Talan
-  </a></p>
+  <p><a href="${reverse('register_user')}">Inscrivez-vous dès maintenant à l'université Talan</a></p>
 
-  ## Disable help unless the FAQ marketing link is enabled
-  % if settings.MKTG_URL_LINK_MAP.get('FAQ'):
-    <h3>${_("Need Help?")}</h3>
-     <ul>
-    <li><a href="${marketing_link('FAQ')}">Accéder au FAQ </a> </li>
-    <li><a href="${marketing_link('ABOUT')}#contact">Contactez nous</li>
+  <div class="cta cta-help">
+    <h3>Besoin d'aide ?</h3>
+    <ul>
+    <li><a href="/faq">Accéder au FAQ </a> </li>
+    <li><a href="/about#contact">Contactez nous</a></li>
     </ul>
-  % endif
+</div>
 </div>

@@ -14,8 +14,6 @@ information about edX data.
 
 * :ref:`Skills_Experience_Data_Czar`
 
-* :ref:`Getting_Credentials_Data_Czar`
-
 * :ref:`Resources_Information`
 
 At some institutions, only the data czar works on research projects that use
@@ -25,8 +23,7 @@ making a secure transfer of the data to the research team. Typically, the data
 team includes members in the following roles (or a data czar with these skill
 sets):
 
-* Database administrators work with the SQL and NoSQL data files and write
- queries on the data.
+* Database administrators work with the SQL and NoSQL data files and write queries on the data.
 
 * Statisticians and data analysts mine the data.
 
@@ -79,27 +76,6 @@ Technical Skills
 
 - Ability to validate the data and files received and distributed.
 
-.. _Getting_Credentials_Data_Czar:
-
-**************************************
-Getting Credentials for Data Czars
-**************************************
-
-The designated data czar at each institution works with an edX Program Manager
-to set up a public/private key pair for GNU Privacy Guard (GNUPG).
-
-* The edX Analytics team creates an account on the Amazon Web Service (AWS)
-  Simple Storage Service (S3), and provides the Program Manager with the
-  public key for account access.
-
-* When a data package is available, the data czar downloads it from S3 and
-  decrypts it using the private key.
-
-For detailed information on this procedure, see the *How Do I get my Research
-Data Package?* article on the Open edX Analytics wiki_.
-
-.. _wiki: https://edx-wiki.atlassian.net/wiki/pages/viewpage.action?pageId=36044863
-
 .. _Resources_Information:
 
 **************************************
@@ -107,15 +83,15 @@ Resources and Information
 **************************************
 
 The edX Analytics team adds every data czar to a Google Group and mailing
-list_ called course-data.
+list called `course-data`_.
 
-.. _list: http://groups.google.com/a/edx.org/forum/#!forum/course-data
+.. _course-data: http://groups.google.com/a/edx.org/forum/#!forum/course-data
 
-EdX also hosts an **Open edX Analytics** wiki_ that is available to the
+EdX also hosts an `Open edX Analytics wiki`_ that is available to the
 public. The wiki provides links to the engineering roadmap, information about
 operational issues, and release notes describing past releases.
 
-.. _wiki: http://edx-wiki.atlassian.net/wiki/display/OA/Open+edX+Analytics+Home
+.. _Open edX Analytics wiki: http://edx-wiki.atlassian.net/wiki/display/OA/Open+edX+Analytics+Home
 
 .. _Skills_Experience_Contributors:
 

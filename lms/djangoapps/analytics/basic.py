@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 import xmodule.graders as xmgraders
 
 
-STUDENT_FEATURES = ('username', 'first_name', 'last_name', 'is_staff', 'email')
+STUDENT_FEATURES = ('id', 'username', 'first_name', 'last_name', 'is_staff', 'email')
 PROFILE_FEATURES = ('name', 'language', 'location', 'year_of_birth', 'gender',
                     'level_of_education', 'mailing_address', 'goals')
 AVAILABLE_FEATURES = STUDENT_FEATURES + PROFILE_FEATURES
@@ -70,7 +70,7 @@ def dump_grading_context(course):
             subgrader.index = 1
             graders[subgrader.type] = subgrader
     msg += hbar
-    msg += "Listing grading context for course %s\n" % course.id
+    msg += "Listing grading context for course %s\n" % course.id.to_deprecated_string()
 
     gcontext = course.grading_context
     msg += "graded sections:\n"

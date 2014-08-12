@@ -16,9 +16,9 @@ A
 
   The course page that provides potential students with a course summary, prerequisites, a course video and image, and important dates.
 
-  See :ref:`Setting up a New Course` for more information.
+  See :ref:`The Course Summary Page` for more information.
 
-.. _Advanced Editor-g:
+.. _Advanced Editor_g:
  
 **Advanced Editor**
 
@@ -75,9 +75,9 @@ C
 
 .. _Cohort:
  
-**Cohort**
+.. **Cohort**
 
-  A group of students that participate in the class together. A cohort can have forum discussions apart from the rest of the students.
+..  A group of students that participate in the class together. A cohort can have forum discussions apart from the rest of the students.
 
 
 .. _Component_g:
@@ -128,14 +128,15 @@ C
  
 
 **Courseware**
-  The page where students access the primary instructional materials for your course. Sections, subsections, units and components are all accessed from the Courseware page.
+
+  The page where students access the primary instructional materials for your course. Sections, subsections, units, and components are all accessed from the Courseware page.
 
 
 .. _Custom Response Problem:
  
 **Custom Response Problem**
 
-  A custom response problem evaluates text responses from students using an embedded Python script. These problems are also called "write-your-own-grader" problems. For more information, see :ref:`Custom Python Evaluated Input` Custom Python-evaluated input (also called "write-your-own-grader" problems evaluate students'.
+  A custom response problem evaluates text responses from students using an embedded Python script. These problems are also called "write-your-own-grader" problems. For more information, see :ref:`Write Your Own Grader`. 
 
 .. _D:
 
@@ -143,20 +144,32 @@ C
 D
 ****
 
-.. _Discussion Forum:
+.. _Data Czar_g:
+
+**Data Czar**
+
+  A data czar is the single representative at a partner institution who is
+  responsible for receiving course data from edX, and transferring it securely
+  to researchers and other interested parties after it is received.
+
+  See `edX Research Guide`_.
+
+.. _edX Research Guide: http://edx.readthedocs.org/projects/devdata/en/latest/
+
+.. _Discussion:
  
-**Discussion Forum**
+**Discussion**
 
-  The page where students can communicate with peers and staff by typing in questions and responding to each other. 
+  The set of topics defined to promote course-wide or unit-specific dialog. Students use the discussion topics to communicate with each other and the course staff in threaded excahnges. 
 
-  See :ref:`Working with Discussion Components` for more information.
+  See :ref:`Discussions` for more information.
 
 
 .. _Discussion Component:
  
 **Discussion Component**
 
-  Forums that course staff can add directly to units. For example, a Video component can be followed by a Discussion component so that students can discuss the video content without having to leave the page.
+  Discussion topics that course staff add directly to units. For example, a Video component can be followed by a Discussion component so that students can discuss the video content without having to leave the page.
 
   See :ref:`Working with Discussion Components` for more information.
 
@@ -177,7 +190,7 @@ E
  
 **edX101**
 
-  edX’s online course about how to create online courses. The intended audience is faculty and university administrators It is also the first course ever to have been developed entirely using edX Studio.
+  edX’s online course about how to create online courses. The intended audience is faculty and university administrators. It is also the first course ever to have been developed entirely using edX Studio.
 
 .. _edX101: https://edge.edx.org/courses/edX/edX101/How_to_Create_an_edX_Course/about
 
@@ -186,7 +199,7 @@ E
  
 **edX Edge**
 
-  A less restricted site than edX.org. While only consortium members can create and post content on edX.org, any users with course creator permissions can create courses with Studio  on studio.edge.edx.org, then view the courses on the learning management system at edge.edx.org.
+  A less restricted site than edX.org. While only consortium members can create and post content on edX.org, any users with course creator permissions can create courses with Studio on studio.edge.edx.org, then view the courses on the learning management system at edge.edx.org.
 
 .. _Edge: http://edge.edx.org
 
@@ -208,7 +221,15 @@ E
 
   Practice or practical problems interspersed in edX course content to keep the learner engaged. Exercises are also an important measure of teaching effectiveness and learner comprehension.
 
+.. _F:
 
+***
+F
+***
+
+**Forum**
+
+  See :ref:`Discussion`.
 
 .. _G:
 
@@ -231,7 +252,7 @@ G
  
   List of the items that a student's response should cover in an open response assessment.
 
-  See :ref:`Rubrics` for more information.
+  See :ref:`ORA Rubrics` for more information.
 
 
 .. _H:
@@ -248,14 +269,6 @@ H
 
   See :ref:`Working with HTML Components` for more information.
 
-
-.. _HTML View:
- 
-**HTML View**
-
-  The view in the HTML component editor allows you to enter HTML code directly.
-
-  See :ref:`The User Interface` for more information.
 
 
 .. _I:
@@ -307,7 +320,9 @@ L
  
 **Learning Management System (LMS)**
 
-  The platform that students use to view courses.
+  The platform that students use to view courses, and that course staff members
+  use to manage enrollment and staff privileges, moderate dicussions, and
+  access data while the course is running.
 
 
 
@@ -315,7 +330,7 @@ L
  
 **Live Mode**
 
-  A view that  allows course staff to review all public units as students see them,  regardless of the release dates of the section and subsection that contain the units.
+  A view that allows course staff to review all public units as students see them, regardless of the release dates of the section and subsection that contain the units.
 
   See :ref:`View Your Live Course` for more information.
 
@@ -332,7 +347,7 @@ M
 
   A problem that requires students to enter a mathematical expression as text, such as e=m*c^2.
 
-  See :ref:`Math Expression Syntax` for more information.
+  See :ref:`Math Response Formatting for Students` for more information.
 
 
 .. _MathJax:
@@ -381,9 +396,12 @@ P
  
 **Pages**
 
-  Pages that supplement the courseware for a course. Each page appears in your course's navigation bar. 
+  Pages organize course materials into categories that students select in the
+  learning management system. Pages provide access to the courseware and to
+  tools and uploaded files that supplement the course. Each page appears in
+  your course's navigation bar.
 
-  See :ref:`Add Pages` for more information.
+  See :ref:`Adding Pages to a Course` for more information.
 
 .. _Preview Mode:
  
@@ -443,7 +461,7 @@ R
 
   List of the items that a student's response should cover in an open response assessment.
 
-  See :ref:`Rubrics` for more information.
+  See :ref:`ORA Rubrics` for more information.
 
 
 
@@ -460,17 +478,26 @@ S
  
 **Section**
 
-  The topmost category in your course. A section can represent a time period in your course, or another organizing principle.
+  The topmost category in your course. A section can represent a time period in your course or another organizing principle.
 
   See :ref:`Sections` for more information.
 
+
+.. _Short Course Description:
+ 
+**Short Course Description**
+
+  The description of your course that appears on the edX `Course List
+  <https://www.edx.org/course-list>`_ page.
+
+  See :ref:`Describe Your Course` for more information.
 
 
 .. _Simple Editor_g:
  
 **Simple Editor**
 
-  The graphical user interface in a Problem component that contains formatting buttons and is available for some problem types. For more information, see :ref:`Studio UI`.
+  The graphical user interface in a Problem component that contains formatting buttons and is available for some problem types. For more information, see :ref:`Problem Studio View`.
 
 
 
@@ -483,14 +510,6 @@ S
   See :ref:`Subsections` for more information.
 
 
-
-.. _Short Course Description:
- 
-**Short Course Description**
-
-  The description of your course that appears on the edX `Course List <https://www.edx.org/course-list>`_ page.
-
-  See :ref:`Describe Your Course` for more information.
 
 
 .. _T:
@@ -530,15 +549,6 @@ V
   A component that you can use to add recorded videos to your course. 
 
   See :ref:`Working with Video Components` for more information.
-
-
-.. _Visual View:
- 
-**Visual View**
-
-  The view in the HTML component editor that allows you format text without using HTML code.
-
-  See :ref:`The User Interface` for more information.
 
 
 .. _W:

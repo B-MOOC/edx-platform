@@ -10,7 +10,6 @@ from django.core.urlresolvers import reverse
   <h3 class="sr">${_("Registration Help")}</h3>
 </header>
 
-% if has_extauth_info is UNDEFINED:
 
 <div class="cta">
   <h3>${_("Already registered?")}</h3>
@@ -20,25 +19,10 @@ from django.core.urlresolvers import reverse
     </a>
   </p>
 </div>
-
-% endif
-
-## TODO: Use a %block tag or something to allow themes to
-##       override in a more generalizable fashion.
-% if not stanford_theme_enabled():
-  <div class="cta cta-welcome">
-    <h3>${_("Welcome to {platform_name}").format(platform_name=platform_name)}</h3>
-    <p>${_("Registering with {platform_name} gives you access to all of our current and future free courses. Not ready to take a course just yet? Registering puts you on our mailing list - we will update you as courses are added.").format(platform_name=platform_name)}</p>
-  </div>
-% endif
-
-% if settings.MKTG_URL_LINK_MAP.get('FAQ'):
-  <div class="cta cta-help">
-    <h3>${_("Need Help?")}</h3>
+<div class="cta cta-help">
+    <h3>Besoin d'aide ?</h3>
     <ul>
-    <li><a href="${marketing_link('FAQ')}">Accéder au FAQ </a> </li>
-    <li><a href="${marketing_link('ABOUT')}#contact">Contactez nous</li>
+    <li><a href="/faq">Accéder au FAQ </a> </li>
+    <li><a href="/about#contact">Contactez nous</a></li>
     </ul>
-    
-      </div>
-% endif
+</div>

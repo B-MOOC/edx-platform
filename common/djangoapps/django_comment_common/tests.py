@@ -1,5 +1,6 @@
 from django.test import TestCase
 
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from django_comment_common.models import Role
 from student.models import CourseEnrollment, User
 
@@ -21,13 +22,13 @@ class RoleAssignmentTest(TestCase):
             "hacky",
             "hacky@fake.edx.org"
         )
-        self.course_id = "edX/Fake101/2012"
-        CourseEnrollment.enroll(self.staff_user, self.course_id)
-        CourseEnrollment.enroll(self.student_user, self.course_id)
+        self.course_key = SlashSeparatedCourseKey("edX", "Fake101", "2012")
+        CourseEnrollment.enroll(self.staff_user, self.course_key)
+        CourseEnrollment.enroll(self.student_user, self.course_key)
 
     def test_enrollment_auto_role_creation(self):
         student_role = Role.objects.get(
-            course_id=self.course_id,
+            course_id=self.course_key,
             name="Student"
         )
 
@@ -36,7 +37,7 @@ class RoleAssignmentTest(TestCase):
 
     # The following was written on the assumption that unenrolling from a course
     # should remove all forum Roles for that student for that course. This is
-    # not necessarily the case -- please see comments at the top of 
+    # not necessarily the case -- please see comments at the top of
     # django_comment_client.models.assign_default_role(). Leaving it for the
     # forums team to sort out.
     #

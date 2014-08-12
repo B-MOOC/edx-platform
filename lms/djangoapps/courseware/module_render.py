@@ -7,11 +7,11 @@ import static_replace
 from functools import partial
 from requests.auth import HTTPBasicAuth
 from dogapi import dog_stats_api
+from opaque_keys import InvalidKeyError
 
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.core.exceptions import PermissionDenied
 from django.core.urlresolvers import reverse
 from django.http import Http404, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -21,7 +21,7 @@ from courseware.access import has_access, get_user_role
 from courseware.masquerade import setup_masquerade
 from courseware.model_data import FieldDataCache, DjangoKeyValueStore
 from lms.lib.xblock.field_data import LmsFieldData
-from lms.lib.xblock.runtime import LmsModuleSystem, unquote_slashes
+from lms.lib.xblock.runtime import LmsModuleSystem, unquote_slashes, quote_slashes
 from edxmako.shortcuts import render_to_string
 from eventtracking import tracker
 from psychometrics.psychoanalyze import make_psychometrics_data_update_handler
@@ -33,11 +33,11 @@ from xblock.exceptions import NoSuchHandlerError
 from xblock.django.request import django_to_webob_request, webob_to_django_response
 from xmodule.error_module import ErrorDescriptor, NonStaffErrorDescriptor
 from xmodule.exceptions import NotFoundError, ProcessingError
-from xmodule.modulestore import Location
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from xmodule.modulestore.django import modulestore, ModuleI18nService
 from xmodule.modulestore.exceptions import ItemNotFoundError
 from xmodule.util.duedate import get_extended_due_date
-from xmodule_modifiers import replace_course_urls, replace_jump_to_id_urls, replace_static_urls, add_staff_debug_info, wrap_xblock
+from xmodule_modifiers import replace_course_urls, replace_jump_to_id_urls, replace_static_urls, add_staff_markup, wrap_xblock
 from xmodule.lti_module import LTIModule
 from xmodule.x_module import XModuleDescriptor
 
@@ -49,15 +49,25 @@ log = logging.getLogger(__name__)
 
 
 if settings.XQUEUE_INTERFACE.get('basic_auth') is not None:
-    requests_auth = HTTPBasicAuth(*settings.XQUEUE_INTERFACE['basic_auth'])
+    REQUESTS_AUTH = HTTPBasicAuth(*settings.XQUEUE_INTERFACE['basic_auth'])
 else:
-    requests_auth = None
+    REQUESTS_AUTH = None
 
-xqueue_interface = XQueueInterface(
+XQUEUE_INTERFACE = XQueueInterface(
     settings.XQUEUE_INTERFACE['url'],
     settings.XQUEUE_INTERFACE['django_auth'],
-    requests_auth,
+    REQUESTS_AUTH,
 )
+
+# TODO: course_id and course_key are used interchangeably in this file, which is wrong.
+# Some brave person should make the variable names consistently someday, but the code's
+# coupled enough that it's kind of tricky--you've been warned!
+
+class LmsModuleRenderError(Exception):
+    """
+    An exception class for exceptions thrown by module_render that don't fit well elsewhere
+    """
+    pass
 
 
 def make_track_function(request):
@@ -127,8 +137,8 @@ def toc_for_course(user, request, course, active_chapter, active_section, field_
     return chapters
 
 
-def get_module(user, request, location, field_data_cache, course_id,
-               position=None, not_found_ok=False, wrap_xmodule_display=True,
+def get_module(user, request, usage_key, field_data_cache,
+               position=None, log_if_not_found=True, wrap_xmodule_display=True,
                grade_bucket_type=None, depth=0,
                static_asset_path=''):
     """
@@ -140,11 +150,13 @@ def get_module(user, request, location, field_data_cache, course_id,
       - user                  : User for whom we're getting the module
       - request               : current django HTTPrequest.  Note: request.user isn't used for anything--all auth
                                 and such works based on user.
-      - location              : A Location-like object identifying the module to load
+      - usage_key             : A UsageKey object identifying the module to load
       - field_data_cache      : a FieldDataCache
-      - course_id             : the course_id in the context of which to load module
       - position              : extra information from URL for user-specified
                                 position within module
+      - log_if_not_found      : If this is True, we log a debug message if we cannot find the requested xmodule.
+      - wrap_xmodule_display  : If this is True, wrap the output display in a single div to allow for the
+                                XModule javascript to be bound correctly
       - depth                 : number of levels of descendents to cache when loading this module.
                                 None means cache all descendents
       - static_asset_path     : static asset path to use (overrides descriptor's value); needed
@@ -157,17 +169,17 @@ def get_module(user, request, location, field_data_cache, course_id,
     if possible.  If not possible, return None.
     """
     try:
-        location = Location(location)
-        descriptor = modulestore().get_instance(course_id, location, depth=depth)
-        return get_module_for_descriptor(user, request, descriptor, field_data_cache, course_id,
+        descriptor = modulestore().get_item(usage_key, depth=depth)
+        return get_module_for_descriptor(user, request, descriptor, field_data_cache, usage_key.course_key,
                                          position=position,
                                          wrap_xmodule_display=wrap_xmodule_display,
                                          grade_bucket_type=grade_bucket_type,
                                          static_asset_path=static_asset_path)
     except ItemNotFoundError:
-        if not not_found_ok:
-            log.exception("Error in get_module")
+        if log_if_not_found:
+            log.debug("Error in get_module: ItemNotFoundError")
         return None
+
     except:
         # Something has gone terribly wrong, but still not letting it turn into a 500.
         log.exception("Error in get_module")
@@ -198,45 +210,53 @@ def get_module_for_descriptor(user, request, descriptor, field_data_cache, cours
     See get_module() docstring for further details.
     """
     # allow course staff to masquerade as student
-    if has_access(user, descriptor, 'staff', course_id):
+    if has_access(user, 'staff', descriptor, course_id):
         setup_masquerade(request, True)
 
     track_function = make_track_function(request)
     xqueue_callback_url_prefix = get_xqueue_callback_url_prefix(request)
 
+    user_location = getattr(request, 'session', {}).get('country_code')
+
     return get_module_for_descriptor_internal(user, descriptor, field_data_cache, course_id,
                                               track_function, xqueue_callback_url_prefix,
                                               position, wrap_xmodule_display, grade_bucket_type,
-                                              static_asset_path)
+                                              static_asset_path, user_location)
 
 
-def get_module_for_descriptor_internal(user, descriptor, field_data_cache, course_id,
-                                       track_function, xqueue_callback_url_prefix,
-                                       position=None, wrap_xmodule_display=True, grade_bucket_type=None,
-                                       static_asset_path=''):
+def get_module_system_for_user(user, field_data_cache,
+                               # Arguments preceding this comment have user binding, those following don't
+                               descriptor, course_id, track_function, xqueue_callback_url_prefix,
+                               position=None, wrap_xmodule_display=True, grade_bucket_type=None,
+                               static_asset_path='', user_location=None):
     """
-    Actually implement get_module, without requiring a request.
+    Helper function that returns a module system and student_data bound to a user and a descriptor.
 
-    See get_module() docstring for further details.
+    The purpose of this function is to factor out everywhere a user is implicitly bound when creating a module,
+    to allow an existing module to be re-bound to a user.  Most of the user bindings happen when creating the
+    closures that feed the instantiation of ModuleSystem.
+
+    The arguments fall into two categories: those that have explicit or implicit user binding, which are user
+    and field_data_cache, and those don't and are just present so that ModuleSystem can be instantiated, which
+    are all the other arguments.  Ultimately, this isn't too different than how get_module_for_descriptor_internal
+    was before refactoring.
+
+    Arguments:
+        see arguments for get_module()
+
+    Returns:
+        (LmsModuleSystem, KvsFieldData):  (module system, student_data) bound to, primarily, the user and descriptor
     """
-
-    # Do not check access when it's a noauth request.
-    if getattr(user, 'known', True):
-        # Short circuit--if the user shouldn't have access, bail without doing any work
-        if not has_access(user, descriptor, 'load', course_id):
-            return None
-
     student_data = KvsFieldData(DjangoKeyValueStore(field_data_cache))
-
 
     def make_xqueue_callback(dispatch='score_update'):
         # Fully qualified callback URL for external queueing system
         relative_xqueue_callback_url = reverse(
             'xqueue_callback',
             kwargs=dict(
-                course_id=course_id,
+                course_id=course_id.to_deprecated_string(),
                 userid=str(user.id),
-                mod_id=descriptor.location.url(),
+                mod_id=descriptor.location.to_deprecated_string(),
                 dispatch=dispatch
             ),
         )
@@ -248,7 +268,7 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
     xqueue_default_queuename = descriptor.location.org + '-' + descriptor.location.course
 
     xqueue = {
-        'interface': xqueue_interface,
+        'interface': XQUEUE_INTERFACE,
         'construct_callback': make_xqueue_callback,
         'default_queuename': xqueue_default_queuename.replace(' ', '_'),
         'waittime': settings.XQUEUE_WAITTIME_BETWEEN_REQUESTS
@@ -290,7 +310,7 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
         return get_module_for_descriptor_internal(user, descriptor, field_data_cache, course_id,
                                                   track_function, make_xqueue_callback,
                                                   position, wrap_xmodule_display, grade_bucket_type,
-                                                  static_asset_path)
+                                                  static_asset_path, user_location)
 
     def handle_grade_event(block, event_type, event):
         user_id = event.get('user_id', user.id)
@@ -312,12 +332,10 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
 
         # Bin score into range and increment stats
         score_bucket = get_score_bucket(student_module.grade, student_module.max_grade)
-        course_id_dict = Location.parse_course_id(course_id)
 
         tags = [
-            u"org:{org}".format(**course_id_dict),
-            u"course:{course}".format(**course_id_dict),
-            u"run:{name}".format(**course_id_dict),
+            u"org:{}".format(course_id.org),
+            u"course:{}".format(course_id),
             u"score_bucket:{0}".format(score_bucket)
         ]
 
@@ -333,6 +351,49 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
         else:
             track_function(event_type, event)
 
+    def rebind_noauth_module_to_user(module, real_user):
+        """
+        A function that allows a module to get re-bound to a real user if it was previously bound to an AnonymousUser.
+
+        Will only work within a module bound to an AnonymousUser, e.g. one that's instantiated by the noauth_handler.
+
+        Arguments:
+            module (any xblock type):  the module to rebind
+            real_user (django.contrib.auth.models.User):  the user to bind to
+
+        Returns:
+            nothing (but the side effect is that module is re-bound to real_user)
+        """
+        if user.is_authenticated():
+            err_msg = ("rebind_noauth_module_to_user can only be called from a module bound to "
+                       "an anonymous user")
+            log.error(err_msg)
+            raise LmsModuleRenderError(err_msg)
+
+        field_data_cache_real_user = FieldDataCache.cache_for_descriptor_descendents(
+            course_id,
+            real_user,
+            module.descriptor
+        )
+
+        (inner_system, inner_student_data) = get_module_system_for_user(
+            real_user, field_data_cache_real_user,  # These have implicit user bindings, rest of args considered not to
+            module.descriptor, course_id, track_function, xqueue_callback_url_prefix, position, wrap_xmodule_display,
+            grade_bucket_type, static_asset_path, user_location
+        )
+        # rebinds module to a different student.  We'll change system, student_data, and scope_ids
+        module.descriptor.bind_for_student(
+            inner_system,
+            LmsFieldData(module.descriptor._field_data, inner_student_data)  # pylint: disable=protected-access
+        )
+        module.descriptor.scope_ids = (
+            module.descriptor.scope_ids._replace(user_id=real_user.id)  # pylint: disable=protected-access
+        )
+        module.scope_ids = module.descriptor.scope_ids  # this is needed b/c NamedTuples are immutable
+        # now bind the module to the new ModuleSystem instance and vice-versa
+        module.runtime = inner_system
+        inner_system.xmodule_instance = module
+
     # Build a list of wrapping functions that will be applied in order
     # to the Fragment content coming out of the xblocks that are about to be rendered.
     block_wrappers = []
@@ -340,7 +401,11 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
     # Wrap the output display in a single div to allow for the XModule
     # javascript to be bound correctly
     if wrap_xmodule_display is True:
-        block_wrappers.append(partial(wrap_xblock, 'LmsRuntime', extra_data={'course-id': course_id}))
+        block_wrappers.append(partial(
+            wrap_xblock, 'LmsRuntime',
+            extra_data={'course-id': course_id.to_deprecated_string()},
+            usage_id_serializer=lambda usage_id: quote_slashes(usage_id.to_deprecated_string())
+        ))
 
     # TODO (cpennington): When modules are shared between courses, the static
     # prefix is going to have to be specific to the module, not the directory
@@ -366,12 +431,13 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
     block_wrappers.append(partial(
         replace_jump_to_id_urls,
         course_id,
-        reverse('jump_to_id', kwargs={'course_id': course_id, 'module_id': ''}),
+        reverse('jump_to_id', kwargs={'course_id': course_id.to_deprecated_string(), 'module_id': ''}),
     ))
 
     if settings.FEATURES.get('DISPLAY_DEBUG_INFO_TO_STAFF'):
-        if has_access(user, descriptor, 'staff', course_id):
-            block_wrappers.append(partial(add_staff_debug_info, user))
+        if has_access(user, 'staff', descriptor, course_id):
+            has_instructor_access = has_access(user, 'instructor', descriptor, course_id)
+            block_wrappers.append(partial(add_staff_markup, user, has_instructor_access))
 
     # These modules store data using the anonymous_student_id as a key.
     # To prevent loss of data, we will continue to provide old modules with
@@ -385,7 +451,7 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
     if is_pure_xblock or is_lti_module:
         anonymous_student_id = anonymous_id_for_user(user, course_id)
     else:
-        anonymous_student_id = anonymous_id_for_user(user, '')
+        anonymous_student_id = anonymous_id_for_user(user, None)
 
     system = LmsModuleSystem(
         track_function=track_function,
@@ -409,12 +475,12 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
         ),
         replace_course_urls=partial(
             static_replace.replace_course_urls,
-            course_id=course_id
+            course_key=course_id
         ),
         replace_jump_to_id_urls=partial(
             static_replace.replace_jump_to_id_urls,
             course_id=course_id,
-            jump_to_id_base_url=reverse('jump_to_id', kwargs={'course_id': course_id, 'module_id': ''})
+            jump_to_id_base_url=reverse('jump_to_id', kwargs={'course_id': course_id.to_deprecated_string(), 'module_id': ''})
         ),
         node_path=settings.NODE_PATH,
         publish=publish,
@@ -433,23 +499,59 @@ def get_module_for_descriptor_internal(user, descriptor, field_data_cache, cours
         },
         get_user_role=lambda: get_user_role(user, course_id),
         descriptor_runtime=descriptor.runtime,
+        rebind_noauth_module_to_user=rebind_noauth_module_to_user,
+        user_location=user_location,
     )
 
     # pass position specified in URL to module through ModuleSystem
+    if position is not None:
+        try:
+            position = int(position)
+        except (ValueError, TypeError):
+            log.exception('Non-integer %r passed as position.', position)
+            position = None
+
     system.set('position', position)
+
     if settings.FEATURES.get('ENABLE_PSYCHOMETRICS'):
         system.set(
             'psychometrics_handler',  # set callback for updating PsychometricsData
-            make_psychometrics_data_update_handler(course_id, user, descriptor.location.url())
+            make_psychometrics_data_update_handler(course_id, user, descriptor.location)
         )
 
-    system.set(u'user_is_staff', has_access(user, descriptor.location, u'staff', course_id))
+    system.set(u'user_is_staff', has_access(user, u'staff', descriptor.location, course_id))
+    system.set(u'user_is_admin', has_access(user, u'staff', 'global'))
 
     # make an ErrorDescriptor -- assuming that the descriptor's system is ok
-    if has_access(user, descriptor.location, 'staff', course_id):
+    if has_access(user, u'staff', descriptor.location, course_id):
         system.error_descriptor_class = ErrorDescriptor
     else:
         system.error_descriptor_class = NonStaffErrorDescriptor
+
+    return system, student_data
+
+
+def get_module_for_descriptor_internal(user, descriptor, field_data_cache, course_id,  # pylint: disable=invalid-name
+                                       track_function, xqueue_callback_url_prefix,
+                                       position=None, wrap_xmodule_display=True, grade_bucket_type=None,
+                                       static_asset_path='', user_location=None):
+    """
+    Actually implement get_module, without requiring a request.
+
+    See get_module() docstring for further details.
+    """
+
+    # Do not check access when it's a noauth request.
+    if getattr(user, 'known', True):
+        # Short circuit--if the user shouldn't have access, bail without doing any work
+        if not has_access(user, 'load', descriptor, course_id):
+            return None
+
+    (system, student_data) = get_module_system_for_user(
+        user, field_data_cache,  # These have implicit user bindings, the rest of args are considered not to
+        descriptor, course_id, track_function, xqueue_callback_url_prefix, position, wrap_xmodule_display,
+        grade_bucket_type, static_asset_path, user_location
+    )
 
     descriptor.bind_for_student(system, LmsFieldData(descriptor._field_data, student_data))  # pylint: disable=protected-access
     descriptor.scope_ids = descriptor.scope_ids._replace(user_id=user.id)  # pylint: disable=protected-access
@@ -460,15 +562,17 @@ def find_target_student_module(request, user_id, course_id, mod_id):
     """
     Retrieve target StudentModule
     """
+    course_id = SlashSeparatedCourseKey.from_deprecated_string(course_id)
+    usage_key = course_id.make_usage_key_from_deprecated_string(mod_id)
     user = User.objects.get(id=user_id)
     field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
         course_id,
         user,
-        modulestore().get_instance(course_id, mod_id),
+        modulestore().get_item(usage_key),
         depth=0,
         select_for_update=True
     )
-    instance = get_module(user, request, mod_id, field_data_cache, course_id, grade_bucket_type='xqueue')
+    instance = get_module(user, request, usage_key, field_data_cache, grade_bucket_type='xqueue')
     if instance is None:
         msg = "No module {0} for user {1}--access denied?".format(mod_id, user)
         log.debug(msg)
@@ -534,13 +638,13 @@ def handle_xblock_callback(request, course_id, usage_id, handler, suffix=None):
       - location -- the module location. Used to look up the XModule instance
       - course_id -- defines the course context for this request.
 
-    Raises PermissionDenied if the user is not logged in. Raises Http404 if
+    Return 403 error if the user is not logged in. Raises Http404 if
     the location and course_id do not identify a valid module, the module is
     not accessible by the user, or the module raises NotFoundError. If the
     module raises any other error, it will escape this function.
     """
     if not request.user.is_authenticated():
-        raise PermissionDenied
+        return HttpResponse('Unauthenticated', status=403)
 
     return _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, request.user)
 
@@ -566,11 +670,19 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, user):
     """
     Invoke an XBlock handler, either authenticated or not.
 
-    """
-    location = unquote_slashes(usage_id)
+    Arguments:
+        request (HttpRequest): the current request
+        course_id (str): A string of the form org/course/run
+        usage_id (str): A string of the form i4x://org/course/category/name@revision
+        handler (str): The name of the handler to invoke
+        suffix (str): The suffix to pass to the handler when invoked
+        user (User): The currently logged in user
 
-    # Check parameters and fail fast if there's a problem
-    if not Location.is_valid(location):
+    """
+    try:
+        course_id = SlashSeparatedCourseKey.from_deprecated_string(course_id)
+        usage_key = course_id.make_usage_key_from_deprecated_string(unquote_slashes(usage_id))
+    except InvalidKeyError:
         raise Http404("Invalid location")
 
     # Check submitted files
@@ -580,12 +692,12 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, user):
         return HttpResponse(json.dumps({'success': error_msg}))
 
     try:
-        descriptor = modulestore().get_instance(course_id, location)
+        descriptor = modulestore().get_item(usage_key)
     except ItemNotFoundError:
         log.warn(
-            "Invalid location for course id {course_id}: {location}".format(
-                course_id=course_id,
-                location=location
+            "Invalid location for course id {course_id}: {usage_key}".format(
+                course_id=usage_key.course_key,
+                usage_key=usage_key
             )
         )
         raise Http404
@@ -602,11 +714,11 @@ def _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, user):
         user,
         descriptor
     )
-    instance = get_module(user, request, location, field_data_cache, course_id, grade_bucket_type='ajax')
+    instance = get_module(user, request, usage_key, field_data_cache, grade_bucket_type='ajax')
     if instance is None:
         # Either permissions just changed, or someone is trying to be clever
         # and load something they shouldn't have access to.
-        log.debug("No module %s for user %s -- access denied?", location, user)
+        log.debug("No module %s for user %s -- access denied?", usage_key, user)
         raise Http404
 
     req = django_to_webob_request(request)

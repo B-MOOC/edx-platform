@@ -4,13 +4,12 @@ import datetime
 import json
 from json.encoder import JSONEncoder
 
-from xmodule.modulestore import Location
+from opaque_keys.edx.locations import Location
 from xmodule.modulestore.exceptions import ItemNotFoundError
-from contentstore.utils import get_modulestore, course_image_url
+from contentstore.utils import course_image_url
 from models.settings import course_grading
 from xmodule.fields import Date
-from xmodule.modulestore.django import loc_mapper
-
+from xmodule.modulestore.django import modulestore
 
 class CourseDetails(object):
     def __init__(self, org, course_id, run):
@@ -27,47 +26,52 @@ class CourseDetails(object):
         self.overview = ""  # html to render as the overview
         self.intro_video = None  # a video pointer
         self.effort = None  # int hours/week
-        self.listemail = None  # int hours/week
+        self.listemail = None  # list email SPOC
         self.course_image_name = ""
         self.course_image_asset_path = ""  # URL of the course image
 
     @classmethod
-    def fetch(cls, course_locator):
+    def fetch(cls, course_key):
         """
         Fetch the course details for the given course from persistence and return a CourseDetails model.
         """
-        course_old_location = loc_mapper().translate_locator_to_location(course_locator)
-        descriptor = get_modulestore(course_old_location).get_item(course_old_location)
-        course = cls(course_old_location.org, course_old_location.course, course_old_location.name)
+        descriptor = modulestore().get_course(course_key)
+        course_details = cls(course_key.org, course_key.course, course_key.run)
 
-        course.start_date = descriptor.start
-        course.end_date = descriptor.end
-        course.enrollment_start = descriptor.enrollment_start
-        course.enrollment_end = descriptor.enrollment_end
-        course.course_image_name = descriptor.course_image
-        course.course_image_asset_path = course_image_url(descriptor)
+        course_details.start_date = descriptor.start
+        course_details.end_date = descriptor.end
+        course_details.enrollment_start = descriptor.enrollment_start
+        course_details.enrollment_end = descriptor.enrollment_end
+        course_details.course_image_name = descriptor.course_image
+        course_details.course_image_asset_path = course_image_url(descriptor)
 
-        temploc = course_old_location.replace(category='about', name='syllabus')
+        temploc = course_key.make_usage_key('about', 'syllabus')
         try:
-            course.syllabus = get_modulestore(temploc).get_item(temploc).data
+            course_details.syllabus = modulestore().get_item(temploc).data
         except ItemNotFoundError:
             pass
 
-        temploc = course_old_location.replace(category='about', name='short_description')
+        temploc = course_key.make_usage_key('about', 'short_description')
         try:
-            course.short_description = get_modulestore(temploc).get_item(temploc).data
+            course_details.short_description = modulestore().get_item(temploc).data
         except ItemNotFoundError:
             pass
 
-        temploc = temploc.replace(name='overview')
+        temploc = course_key.make_usage_key('about', 'overview')
         try:
-            course.overview = get_modulestore(temploc).get_item(temploc).data
+            course_details.overview = modulestore().get_item(temploc).data
         except ItemNotFoundError:
             pass
 
-        temploc = temploc.replace(name='effort')
+        temploc = course_key.make_usage_key('about', 'effort')
         try:
-            course.effort = get_modulestore(temploc).get_item(temploc).data
+            course_details.effort = modulestore().get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+           
+        temploc = course_key.make_usage_key('about', 'listemail')
+        try:
+            course_details.listemail = modulestore().get_item(temploc).data
         except ItemNotFoundError:
             pass
             
@@ -77,40 +81,40 @@ class CourseDetails(object):
         except ItemNotFoundError:
             pass
 
-        temploc = temploc.replace(name='video')
+        temploc = course_key.make_usage_key('about', 'video')
         try:
-            raw_video = get_modulestore(temploc).get_item(temploc).data
-            course.intro_video = CourseDetails.parse_video_tag(raw_video)
+            raw_video = modulestore().get_item(temploc).data
+            course_details.intro_video = CourseDetails.parse_video_tag(raw_video)
         except ItemNotFoundError:
             pass
 
-        return course
+        return course_details
 
     @classmethod
-    def update_about_item(cls, course_old_location, about_key, data, course, user):
+    def update_about_item(cls, course_key, about_key, data, course, user):
         """
         Update the about item with the new data blob. If data is None, then
         delete the about item.
         """
-        temploc = Location(course_old_location).replace(category='about', name=about_key)
-        store = get_modulestore(temploc)
+        temploc = course_key.make_usage_key('about', about_key)
+        store = modulestore()
         if data is None:
-            store.delete_item(temploc)
+            store.delete_item(temploc, user.id)
         else:
             try:
                 about_item = store.get_item(temploc)
             except ItemNotFoundError:
-                about_item = store.create_xmodule(temploc, system=course.runtime)
+                about_item = store.create_xmodule(temploc, runtime=course.runtime)
             about_item.data = data
             store.update_item(about_item, user.id)
 
     @classmethod
-    def update_from_json(cls, course_locator, jsondict, user):
+    def update_from_json(cls, course_key, jsondict, user):
         """
         Decode the json into CourseDetails and save any changed attrs to the db
         """
-        course_old_location = loc_mapper().translate_locator_to_location(course_locator)
-        descriptor = get_modulestore(course_old_location).get_item(course_old_location)
+        module_store = modulestore()
+        descriptor = module_store.get_course(course_key)
 
         dirty = False
 
@@ -160,19 +164,19 @@ class CourseDetails(object):
             dirty = True
 
         if dirty:
-            get_modulestore(course_old_location).update_item(descriptor, user.id)
+            module_store.update_item(descriptor, user.id)
 
         # NOTE: below auto writes to the db w/o verifying that any of the fields actually changed
         # to make faster, could compare against db or could have client send over a list of which fields changed.
         for about_type in ['syllabus', 'overview', 'effort', 'listemail', 'short_description']:
-            cls.update_about_item(course_old_location, about_type, jsondict[about_type], descriptor, user)
+            cls.update_about_item(course_key, about_type, jsondict[about_type], descriptor, user)
 
         recomposed_video_tag = CourseDetails.recompose_video_tag(jsondict['intro_video'])
-        cls.update_about_item(course_old_location, 'video', recomposed_video_tag, descriptor, user)
+        cls.update_about_item(course_key, 'video', recomposed_video_tag, descriptor, user)
 
         # Could just return jsondict w/o doing any db reads, but I put the reads in as a means to confirm
         # it persisted correctly
-        return CourseDetails.fetch(course_locator)
+        return CourseDetails.fetch(course_key)
 
     @staticmethod
     def parse_video_tag(raw_video):

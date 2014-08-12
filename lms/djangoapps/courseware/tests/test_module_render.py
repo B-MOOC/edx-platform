@@ -12,25 +12,32 @@ from django.conf import settings
 from django.test import TestCase
 from django.test.client import RequestFactory
 from django.test.utils import override_settings
+from django.contrib.auth.models import AnonymousUser
 
 from capa.tests.response_xml_factory import OptionResponseXMLFactory
 from xblock.field_data import FieldData
 from xblock.runtime import Runtime
 from xblock.fields import ScopeIds
 from xmodule.lti_module import LTIDescriptor
-from xmodule.modulestore import Location
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import ItemFactory, CourseFactory
-from xmodule.x_module import XModuleDescriptor
+from xmodule.x_module import XModuleDescriptor, STUDENT_VIEW
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 
 from courseware import module_render as render
 from courseware.courses import get_course_with_access, course_image_url, get_course_info_section
 from courseware.model_data import FieldDataCache
-from courseware.tests.factories import StudentModuleFactory, UserFactory
+from courseware.models import StudentModule
+from courseware.tests.factories import StudentModuleFactory, UserFactory, GlobalStaffFactory
 from courseware.tests.tests import LoginEnrollmentTestCase
-from courseware.tests.modulestore_config import TEST_DATA_MIXED_MODULESTORE
 
+from courseware.tests.modulestore_config import TEST_DATA_MIXED_MODULESTORE
+from courseware.tests.modulestore_config import TEST_DATA_MONGO_MODULESTORE
+from courseware.tests.modulestore_config import TEST_DATA_XML_MODULESTORE
+from courseware.tests.test_submitting_problems import TestSubmittingProblems
+
+from student.models import anonymous_id_for_user
 from lms.lib.xblock.runtime import quote_slashes
 
 
@@ -40,9 +47,9 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
     Tests of courseware.module_render
     """
     def setUp(self):
-        self.location = Location('i4x', 'edX', 'toy', 'chapter', 'Overview')
-        self.course_id = 'edX/toy/2012_Fall'
-        self.toy_course = modulestore().get_course(self.course_id)
+        self.course_key = SlashSeparatedCourseKey('edX', 'toy', '2012_Fall')
+        self.location = self.course_key.make_usage_key('chapter', 'Overview')
+        self.toy_course = modulestore().get_course(self.course_key)
         self.mock_user = UserFactory()
         self.mock_user.id = 1
         self.request_factory = RequestFactory()
@@ -53,7 +60,7 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
         self.dispatch = 'score_update'
 
         # Construct a 'standard' xqueue_callback url
-        self.callback_url = reverse('xqueue_callback', kwargs=dict(course_id=self.course_id,
+        self.callback_url = reverse('xqueue_callback', kwargs=dict(course_id=self.course_key.to_deprecated_string(),
                                                                    userid=str(self.mock_user.id),
                                                                    mod_id=self.mock_module.id,
                                                                    dispatch=self.dispatch))
@@ -61,7 +68,7 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
     def test_get_module(self):
         self.assertEqual(
             None,
-            render.get_module('dummyuser', None, 'invalid location', None, None)
+            render.get_module('dummyuser', None, 'invalid location', None)
         )
 
     def test_module_render_with_jump_to_id(self):
@@ -73,26 +80,24 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
         mock_request = MagicMock()
         mock_request.user = self.mock_user
 
-        course = get_course_with_access(self.mock_user, self.course_id, 'load')
+        course = get_course_with_access(self.mock_user, 'load', self.course_key)
 
         field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
-            self.course_id, self.mock_user, course, depth=2)
+            self.course_key, self.mock_user, course, depth=2)
 
         module = render.get_module(
             self.mock_user,
             mock_request,
-            Location('i4x', 'edX', 'toy', 'html', 'toyjumpto'),
+            self.course_key.make_usage_key('html', 'toyjumpto'),
             field_data_cache,
-            self.course_id
         )
 
         # get the rendered HTML output which should have the rewritten link
-        html = module.render('student_view').content
+        html = module.render(STUDENT_VIEW).content
 
         # See if the url got rewritten to the target link
         # note if the URL mapping changes then this assertion will break
-        self.assertIn('/courses/' + self.course_id + '/jump_to_id/vertical_test', html)
-
+        self.assertIn('/courses/' + self.course_key.to_deprecated_string() + '/jump_to_id/vertical_test', html)
 
     def test_xqueue_callback_success(self):
         """
@@ -110,7 +115,7 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
             get_fake_module.return_value = self.mock_module
             # call xqueue_callback with our mocked information
             request = self.request_factory.post(self.callback_url, data)
-            render.xqueue_callback(request, self.course_id, self.mock_user.id, self.mock_module.id, self.dispatch)
+            render.xqueue_callback(request, self.course_key, self.mock_user.id, self.mock_module.id, self.dispatch)
 
         # Verify that handle ajax is called with the correct data
         request.POST['queuekey'] = fake_key
@@ -127,12 +132,12 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
             # Test with missing xqueue data
             with self.assertRaises(Http404):
                 request = self.request_factory.post(self.callback_url, {})
-                render.xqueue_callback(request, self.course_id, self.mock_user.id, self.mock_module.id, self.dispatch)
+                render.xqueue_callback(request, self.course_key, self.mock_user.id, self.mock_module.id, self.dispatch)
 
             # Test with missing xqueue_header
             with self.assertRaises(Http404):
                 request = self.request_factory.post(self.callback_url, data)
-                render.xqueue_callback(request, self.course_id, self.mock_user.id, self.mock_module.id, self.dispatch)
+                render.xqueue_callback(request, self.course_key, self.mock_user.id, self.mock_module.id, self.dispatch)
 
     def test_get_score_bucket(self):
         self.assertEquals(render.get_score_bucket(0, 10), 'incorrect')
@@ -146,14 +151,15 @@ class ModuleRenderTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
         dispatch_url = reverse(
             'xblock_handler',
             args=[
-                'edX/toy/2012_Fall',
-                quote_slashes('i4x://edX/toy/videosequence/Toy_Videos'),
+                self.course_key.to_deprecated_string(),
+                quote_slashes(self.course_key.make_usage_key('videosequence', 'Toy_Videos').to_deprecated_string()),
                 'xmodule_handler',
                 'goto_position'
             ]
         )
         response = self.client.post(dispatch_url, {'position': 2})
         self.assertEquals(403, response.status_code)
+        self.assertEquals('Unauthenticated', response.content)
 
 
 @override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
@@ -163,9 +169,9 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
     """
 
     def setUp(self):
-        self.location = Location('i4x', 'edX', 'toy', 'chapter', 'Overview')
-        self.course_id = 'edX/toy/2012_Fall'
-        self.toy_course = modulestore().get_course(self.course_id)
+        self.course_key = SlashSeparatedCourseKey('edX', 'toy', '2012_Fall')
+        self.location = self.course_key.make_usage_key('chapter', 'Overview')
+        self.toy_course = modulestore().get_course(self.course_key)
         self.mock_user = UserFactory()
         self.mock_user.id = 1
         self.request_factory = RequestFactory()
@@ -176,10 +182,14 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         self.dispatch = 'score_update'
 
         # Construct a 'standard' xqueue_callback url
-        self.callback_url = reverse('xqueue_callback', kwargs=dict(course_id=self.course_id,
-                                                                   userid=str(self.mock_user.id),
-                                                                   mod_id=self.mock_module.id,
-                                                                   dispatch=self.dispatch))
+        self.callback_url = reverse(
+            'xqueue_callback', kwargs={
+                'course_id': self.course_key.to_deprecated_string(),
+                'userid': str(self.mock_user.id),
+                'mod_id': self.mock_module.id,
+                'dispatch': self.dispatch
+            }
+        )
 
     def _mock_file(self, name='file', size=10):
         """Create a mock file object for testing uploads"""
@@ -198,7 +208,7 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         with self.assertRaises(Http404):
             render.handle_xblock_callback(
                 request,
-                'dummy/course/id',
+                self.course_key.to_deprecated_string(),
                 'invalid Location',
                 'dummy_handler'
                 'dummy_dispatch'
@@ -213,8 +223,8 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEquals(
             render.handle_xblock_callback(
                 request,
-                'dummy/course/id',
-                quote_slashes(str(self.location)),
+                self.course_key.to_deprecated_string(),
+                quote_slashes(self.location.to_deprecated_string()),
                 'dummy_handler'
             ).content,
             json.dumps({
@@ -233,8 +243,8 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         self.assertEquals(
             render.handle_xblock_callback(
                 request,
-                'dummy/course/id',
-                quote_slashes(str(self.location)),
+                self.course_key.to_deprecated_string(),
+                quote_slashes(self.location.to_deprecated_string()),
                 'dummy_handler'
             ).content,
             json.dumps({
@@ -248,8 +258,8 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         request.user = self.mock_user
         response = render.handle_xblock_callback(
             request,
-            self.course_id,
-            quote_slashes(str(self.location)),
+            self.course_key.to_deprecated_string(),
+            quote_slashes(self.location.to_deprecated_string()),
             'xmodule_handler',
             'goto_position',
         )
@@ -262,7 +272,7 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
             render.handle_xblock_callback(
                 request,
                 'bad_course_id',
-                quote_slashes(str(self.location)),
+                quote_slashes(self.location.to_deprecated_string()),
                 'xmodule_handler',
                 'goto_position',
             )
@@ -273,8 +283,8 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         with self.assertRaises(Http404):
             render.handle_xblock_callback(
                 request,
-                self.course_id,
-                quote_slashes(str(Location('i4x', 'edX', 'toy', 'chapter', 'bad_location'))),
+                self.course_key.to_deprecated_string(),
+                quote_slashes(self.course_key.make_usage_key('chapter', 'bad_location').to_deprecated_string()),
                 'xmodule_handler',
                 'goto_position',
             )
@@ -285,8 +295,8 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         with self.assertRaises(Http404):
             render.handle_xblock_callback(
                 request,
-                self.course_id,
-                quote_slashes(str(self.location)),
+                self.course_key.to_deprecated_string(),
+                quote_slashes(self.location.to_deprecated_string()),
                 'xmodule_handler',
                 'bad_dispatch',
             )
@@ -297,8 +307,8 @@ class TestHandleXBlockCallback(ModuleStoreTestCase, LoginEnrollmentTestCase):
         with self.assertRaises(Http404):
             render.handle_xblock_callback(
                 request,
-                self.course_id,
-                quote_slashes(str(self.location)),
+                self.course_key.to_deprecated_string(),
+                quote_slashes(self.location.to_deprecated_string()),
                 'bad_handler',
                 'bad_dispatch',
             )
@@ -310,13 +320,13 @@ class TestTOC(TestCase):
     def setUp(self):
 
         # Toy courses should be loaded
-        self.course_name = 'edX/toy/2012_Fall'
-        self.toy_course = modulestore().get_course(self.course_name)
+        self.course_key = SlashSeparatedCourseKey('edX', 'toy', '2012_Fall')
+        self.toy_course = modulestore().get_course(self.course_key)
         self.portal_user = UserFactory()
 
     def test_toc_toy_from_chapter(self):
         chapter = 'Overview'
-        chapter_url = '%s/%s/%s' % ('/courses', self.course_name, chapter)
+        chapter_url = '%s/%s/%s' % ('/courses', self.course_key, chapter)
         factory = RequestFactory()
         request = factory.get(chapter_url)
         field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
@@ -343,7 +353,7 @@ class TestTOC(TestCase):
 
     def test_toc_toy_from_section(self):
         chapter = 'Overview'
-        chapter_url = '%s/%s/%s' % ('/courses', self.course_name, chapter)
+        chapter_url = '%s/%s/%s' % ('/courses', self.course_key, chapter)
         section = 'Welcome'
         factory = RequestFactory()
         request = factory.get(chapter_url)
@@ -403,10 +413,9 @@ class TestHtmlModifiers(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
             wrap_xmodule_display=True,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
 
         self.assertIn('div class="xblock xblock-student_view xmodule_display xmodule_HtmlModule"', result_fragment.content)
 
@@ -416,10 +425,9 @@ class TestHtmlModifiers(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
             wrap_xmodule_display=False,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
 
         self.assertNotIn('div class="xblock xblock-student_view xmodule_display xmodule_HtmlModule"', result_fragment.content)
 
@@ -429,9 +437,8 @@ class TestHtmlModifiers(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
 
         self.assertIn(
             '/c4x/{org}/{course}/asset/foo_content'.format(
@@ -447,9 +454,8 @@ class TestHtmlModifiers(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
 
         self.assertIn(
             '/c4x/{org}/{course}/asset/_file.jpg'.format(
@@ -470,10 +476,9 @@ class TestHtmlModifiers(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
             static_asset_path="toy_course_dir",
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
         self.assertIn('href="/static/toy_course_dir', result_fragment.content)
 
     def test_course_image(self):
@@ -497,16 +502,147 @@ class TestHtmlModifiers(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
 
         self.assertIn(
             '/courses/{course_id}/bar/content'.format(
-                course_id=self.course.id
+                course_id=self.course.id.to_deprecated_string()
             ),
             result_fragment.content
         )
+
+
+class ViewInStudioTest(ModuleStoreTestCase):
+    """Tests for the 'View in Studio' link visiblity."""
+
+    def setUp(self):
+        """ Set up the user and request that will be used. """
+        self.staff_user = GlobalStaffFactory.create()
+        self.request = RequestFactory().get('/')
+        self.request.user = self.staff_user
+        self.request.session = {}
+        self.module = None
+
+    def _get_module(self, course_id, descriptor, location):
+        """
+        Get the module from the course from which to pattern match (or not) the 'View in Studio' buttons
+        """
+        field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
+            course_id,
+            self.staff_user,
+            descriptor
+        )
+
+        return render.get_module(
+            self.staff_user,
+            self.request,
+            location,
+            field_data_cache,
+        )
+
+    def setup_mongo_course(self, course_edit_method='Studio'):
+        """ Create a mongo backed course. """
+        course = CourseFactory.create(
+            course_edit_method=course_edit_method
+        )
+
+        descriptor = ItemFactory.create(
+            category='vertical',
+        )
+
+        child_descriptor = ItemFactory.create(
+            category='vertical',
+            parent_location=descriptor.location
+        )
+
+        self.module = self._get_module(course.id, descriptor, descriptor.location)
+
+        # pylint: disable=W0201
+        self.child_module = self._get_module(course.id, child_descriptor, child_descriptor.location)
+
+    def setup_xml_course(self):
+        """
+        Define the XML backed course to use.
+        Toy courses are already loaded in XML and mixed modulestores.
+        """
+        course_key = SlashSeparatedCourseKey('edX', 'toy', '2012_Fall')
+        location = course_key.make_usage_key('chapter', 'Overview')
+        descriptor = modulestore().get_item(location)
+
+        self.module = self._get_module(course_key, descriptor, location)
+
+
+@override_settings(MODULESTORE=TEST_DATA_MONGO_MODULESTORE)
+class MongoViewInStudioTest(ViewInStudioTest):
+    """Test the 'View in Studio' link visibility in a mongo backed course."""
+
+    def setUp(self):
+        super(MongoViewInStudioTest, self).setUp()
+
+    def test_view_in_studio_link_studio_course(self):
+        """Regular Studio courses should see 'View in Studio' links."""
+        self.setup_mongo_course()
+        result_fragment = self.module.render(STUDENT_VIEW)
+        self.assertIn('View Unit in Studio', result_fragment.content)
+
+    def test_view_in_studio_link_only_in_top_level_vertical(self):
+        """Regular Studio courses should not see 'View in Studio' for child verticals of verticals."""
+        self.setup_mongo_course()
+        # Render the parent vertical, then check that there is only a single "View Unit in Studio" link.
+        result_fragment = self.module.render(STUDENT_VIEW)
+        # The single "View Unit in Studio" link should appear before the first xmodule vertical definition.
+        parts = result_fragment.content.split('xmodule_VerticalModule')
+        self.assertEqual(3, len(parts), "Did not find two vertical modules")
+        self.assertIn('View Unit in Studio', parts[0])
+        self.assertNotIn('View Unit in Studio', parts[1])
+        self.assertNotIn('View Unit in Studio', parts[2])
+
+    def test_view_in_studio_link_xml_authored(self):
+        """Courses that change 'course_edit_method' setting can hide 'View in Studio' links."""
+        self.setup_mongo_course(course_edit_method='XML')
+        result_fragment = self.module.render(STUDENT_VIEW)
+        self.assertNotIn('View Unit in Studio', result_fragment.content)
+
+
+@override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
+class MixedViewInStudioTest(ViewInStudioTest):
+    """Test the 'View in Studio' link visibility in a mixed mongo backed course."""
+
+    def setUp(self):
+        super(MixedViewInStudioTest, self).setUp()
+
+    def test_view_in_studio_link_mongo_backed(self):
+        """Mixed mongo courses that are mongo backed should see 'View in Studio' links."""
+        self.setup_mongo_course()
+        result_fragment = self.module.render(STUDENT_VIEW)
+        self.assertIn('View Unit in Studio', result_fragment.content)
+
+    def test_view_in_studio_link_xml_authored(self):
+        """Courses that change 'course_edit_method' setting can hide 'View in Studio' links."""
+        self.setup_mongo_course(course_edit_method='XML')
+        result_fragment = self.module.render(STUDENT_VIEW)
+        self.assertNotIn('View Unit in Studio', result_fragment.content)
+
+    def test_view_in_studio_link_xml_backed(self):
+        """Course in XML only modulestore should not see 'View in Studio' links."""
+        self.setup_xml_course()
+        result_fragment = self.module.render(STUDENT_VIEW)
+        self.assertNotIn('View Unit in Studio', result_fragment.content)
+
+
+@override_settings(MODULESTORE=TEST_DATA_XML_MODULESTORE)
+class XmlViewInStudioTest(ViewInStudioTest):
+    """Test the 'View in Studio' link visibility in an xml backed course."""
+
+    def setUp(self):
+        super(XmlViewInStudioTest, self).setUp()
+
+    def test_view_in_studio_link_xml_backed(self):
+        """Course in XML only modulestore should not see 'View in Studio' links."""
+        self.setup_xml_course()
+        result_fragment = self.module.render(STUDENT_VIEW)
+        self.assertNotIn('View Unit in Studio', result_fragment.content)
 
 
 @override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
@@ -549,9 +685,8 @@ class TestStaffDebugInfo(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
         self.assertNotIn('Staff Debug', result_fragment.content)
 
     def test_staff_debug_info_enabled(self):
@@ -560,9 +695,8 @@ class TestStaffDebugInfo(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
         self.assertIn('Staff Debug', result_fragment.content)
 
     @patch.dict('django.conf.settings.FEATURES', {'DISPLAY_HISTOGRAMS_TO_STAFF': False})
@@ -572,9 +706,8 @@ class TestStaffDebugInfo(ModuleStoreTestCase):
             self.request,
             self.location,
             self.field_data_cache,
-            self.course.id,
         )
-        result_fragment = module.render('student_view')
+        result_fragment = module.render(STUDENT_VIEW)
         self.assertNotIn('histrogram', result_fragment.content)
 
     def test_histogram_enabled_for_unscored_xmodules(self):
@@ -596,9 +729,8 @@ class TestStaffDebugInfo(ModuleStoreTestCase):
                 self.request,
                 html_descriptor.location,
                 field_data_cache,
-                self.course.id,
             )
-            module.render('student_view')
+            module.render(STUDENT_VIEW)
             self.assertFalse(mock_grade_histogram.called)
 
     def test_histogram_enabled_for_scored_xmodules(self):
@@ -619,18 +751,18 @@ class TestStaffDebugInfo(ModuleStoreTestCase):
                 self.request,
                 self.location,
                 self.field_data_cache,
-                self.course.id,
             )
-            module.render('student_view')
+            module.render(STUDENT_VIEW)
             self.assertTrue(mock_grade_histogram.called)
 
 
 PER_COURSE_ANONYMIZED_DESCRIPTORS = (LTIDescriptor, )
 
-PER_STUDENT_ANONYMIZED_DESCRIPTORS = [
+# The "set" here is to work around the bug that load_classes returns duplicates for multiply-delcared classes.
+PER_STUDENT_ANONYMIZED_DESCRIPTORS = set(
     class_ for (name, class_) in XModuleDescriptor.load_classes()
     if not issubclass(class_, PER_COURSE_ANONYMIZED_DESCRIPTORS)
-]
+)
 
 
 @ddt
@@ -645,7 +777,7 @@ class TestAnonymousStudentId(ModuleStoreTestCase, LoginEnrollmentTestCase):
 
     @patch('courseware.module_render.has_access', Mock(return_value=True))
     def _get_anonymous_id(self, course_id, xblock_class):
-        location = Location('dummy_org', 'dummy_course', 'dummy_category', 'dummy_name')
+        location = course_id.make_usage_key('dummy_category', 'dummy_name')
         descriptor = Mock(
             spec=xblock_class,
             _field_data=Mock(spec=FieldData),
@@ -680,7 +812,7 @@ class TestAnonymousStudentId(ModuleStoreTestCase, LoginEnrollmentTestCase):
                 # This value is set by observation, so that later changes to the student
                 # id computation don't break old data
                 '5afe5d9bb03796557ee2614f5c9611fb',
-                self._get_anonymous_id(course_id, descriptor_class)
+                self._get_anonymous_id(SlashSeparatedCourseKey.from_deprecated_string(course_id), descriptor_class)
             )
 
     @data(*PER_COURSE_ANONYMIZED_DESCRIPTORS)
@@ -689,14 +821,14 @@ class TestAnonymousStudentId(ModuleStoreTestCase, LoginEnrollmentTestCase):
             # This value is set by observation, so that later changes to the student
             # id computation don't break old data
             'e3b0b940318df9c14be59acb08e78af5',
-            self._get_anonymous_id('MITx/6.00x/2012_Fall', descriptor_class)
+            self._get_anonymous_id(SlashSeparatedCourseKey('MITx', '6.00x', '2012_Fall'), descriptor_class)
         )
 
         self.assertEquals(
             # This value is set by observation, so that later changes to the student
             # id computation don't break old data
             'f82b5416c9f54b5ce33989511bb5ef2e',
-            self._get_anonymous_id('MITx/6.00x/2013_Spring', descriptor_class)
+            self._get_anonymous_id(SlashSeparatedCourseKey('MITx', '6.00x', '2013_Spring'), descriptor_class)
         )
 
 
@@ -742,8 +874,8 @@ class TestModuleTrackingContext(ModuleStoreTestCase):
 
         render.handle_xblock_callback(
             self.request,
-            self.course.id,
-            quote_slashes(str(descriptor.location)),
+            self.course.id.to_deprecated_string(),
+            quote_slashes(descriptor.location.to_deprecated_string()),
             'xmodule_handler',
             'problem_check',
         )
@@ -758,3 +890,106 @@ class TestModuleTrackingContext(ModuleStoreTestCase):
     def test_missing_display_name(self, mock_tracker):
         actual_display_name = self.handle_callback_and_get_display_name_from_event(mock_tracker)
         self.assertTrue(actual_display_name.startswith('problem'))
+
+
+class TestXmoduleRuntimeEvent(TestSubmittingProblems):
+    """
+    Inherit from TestSubmittingProblems to get functionality that set up a course and problems structure
+    """
+
+    def setUp(self):
+        super(TestXmoduleRuntimeEvent, self).setUp()
+        self.homework = self.add_graded_section_to_course('homework')
+        self.problem = self.add_dropdown_to_section(self.homework.location, 'p1', 1)
+        self.grade_dict = {'value': 0.18, 'max_value': 32, 'user_id': self.student_user.id}
+        self.delete_dict = {'value': None, 'max_value': None, 'user_id': self.student_user.id}
+
+    def get_module_for_user(self, user):
+        """Helper function to get useful module at self.location in self.course_id for user"""
+        mock_request = MagicMock()
+        mock_request.user = user
+        field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
+            self.course.id, user, self.course, depth=2)
+
+        return render.get_module(  # pylint: disable=protected-access
+            user,
+            mock_request,
+            self.problem.location,
+            field_data_cache,
+        )._xmodule
+
+    def set_module_grade_using_publish(self, grade_dict):
+        """Publish the user's grade, takes grade_dict as input"""
+        module = self.get_module_for_user(self.student_user)
+        module.system.publish(module, 'grade', grade_dict)
+        return module
+
+    def test_xmodule_runtime_publish(self):
+        """Tests the publish mechanism"""
+        self.set_module_grade_using_publish(self.grade_dict)
+        student_module = StudentModule.objects.get(student=self.student_user, module_state_key=self.problem.location)
+        self.assertEqual(student_module.grade, self.grade_dict['value'])
+        self.assertEqual(student_module.max_grade, self.grade_dict['max_value'])
+
+    def test_xmodule_runtime_publish_delete(self):
+        """Test deleting the grade using the publish mechanism"""
+        module = self.set_module_grade_using_publish(self.grade_dict)
+        module.system.publish(module, 'grade', self.delete_dict)
+        student_module = StudentModule.objects.get(student=self.student_user, module_state_key=self.problem.location)
+        self.assertIsNone(student_module.grade)
+        self.assertIsNone(student_module.max_grade)
+
+
+class TestRebindModule(TestSubmittingProblems):
+    """
+    Tests to verify the functionality of rebinding a module.
+    Inherit from TestSubmittingProblems to get functionality that set up a course structure
+    """
+    def setUp(self):
+        super(TestRebindModule, self).setUp()
+        self.homework = self.add_graded_section_to_course('homework')
+        self.lti = ItemFactory.create(category='lti', parent=self.homework)
+        self.user = UserFactory.create()
+        self.anon_user = AnonymousUser()
+
+    def get_module_for_user(self, user):
+        """Helper function to get useful module at self.location in self.course_id for user"""
+        mock_request = MagicMock()
+        mock_request.user = user
+        field_data_cache = FieldDataCache.cache_for_descriptor_descendents(
+            self.course.id, user, self.course, depth=2)
+
+        return render.get_module(  # pylint: disable=protected-access
+            user,
+            mock_request,
+            self.lti.location,
+            field_data_cache,
+        )._xmodule
+
+    def test_rebind_noauth_module_to_user_not_anonymous(self):
+        """
+        Tests that an exception is thrown when rebind_noauth_module_to_user is run from a
+        module bound to a real user
+        """
+        module = self.get_module_for_user(self.user)
+        user2 = UserFactory()
+        user2.id = 2
+        with self.assertRaisesRegexp(
+            render.LmsModuleRenderError,
+            "rebind_noauth_module_to_user can only be called from a module bound to an anonymous user"
+        ):
+            self.assertTrue(module.system.rebind_noauth_module_to_user(module, user2))
+
+    def test_rebind_noauth_module_to_user_anonymous(self):
+        """
+        Tests that get_user_module_for_noauth succeeds when rebind_noauth_module_to_user is run from a
+        module bound to AnonymousUser
+        """
+        module = self.get_module_for_user(self.anon_user)
+        user2 = UserFactory()
+        user2.id = 2
+        module.system.rebind_noauth_module_to_user(module, user2)
+        self.assertTrue(module)
+        self.assertEqual(module.system.anonymous_student_id, anonymous_id_for_user(user2, self.course.id))
+        self.assertEqual(module.scope_ids.user_id, user2.id)
+        self.assertEqual(module.descriptor.scope_ids.user_id, user2.id)

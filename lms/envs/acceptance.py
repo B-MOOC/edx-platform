@@ -27,37 +27,28 @@ import string
 def seed():
     return os.getppid()
 
-# Use the mongo store for acceptance tests
-DOC_STORE_CONFIG = {
-    'host': 'localhost',
-    'db': 'acceptance_xmodule',
-    'collection': 'acceptance_modulestore_%s' % seed(),
-}
+# Silence noisy logs
+LOG_OVERRIDES = [
+    ('track.middleware', logging.CRITICAL),
+    ('codejail.safe_exec', logging.ERROR),
+    ('edx.courseware', logging.ERROR),
+    ('audit', logging.ERROR),
+    ('instructor_task.api_helper', logging.ERROR),
+]
 
-modulestore_options = {
-    'default_class': 'xmodule.hidden_module.HiddenDescriptor',
-    'fs_root': TEST_ROOT / "data",
-    'render_template': 'edxmako.shortcuts.render_to_string',
-}
+for log_name, log_level in LOG_OVERRIDES:
+    logging.getLogger(log_name).setLevel(log_level)
 
-MODULESTORE = {
-    'default': {
-        'ENGINE': 'xmodule.modulestore.mixed.MixedModuleStore',
-        'OPTIONS': {
-            'mappings': {},
-            'stores': {
-                'default': {
-                    'ENGINE': 'xmodule.modulestore.mongo.MongoModuleStore',
-                    'DOC_STORE_CONFIG': DOC_STORE_CONFIG,
-                    'OPTIONS': modulestore_options
-                }
-            }
-        }
+update_module_store_settings(
+    MODULESTORE,
+    doc_store_settings={
+        'db': 'acceptance_xmodule',
+        'collection': 'acceptance_modulestore_%s' % seed(),
+    },
+    module_store_options={
+        'fs_root': TEST_ROOT / "data",
     }
-}
-
-MODULESTORE['direct'] = MODULESTORE['default']
-
+)
 CONTENTSTORE = {
     'ENGINE': 'xmodule.contentstore.mongo.MongoContentStore',
     'DOC_STORE_CONFIG': {
@@ -74,12 +65,24 @@ DATABASES = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': TEST_ROOT / "db" / "test_edx.db",
         'TEST_NAME': TEST_ROOT / "db" / "test_edx.db",
+        'OPTIONS': {
+            'timeout': 30,
+        },
     }
 }
 
 TRACKING_BACKENDS.update({
     'mongo': {
         'ENGINE': 'track.backends.mongodb.MongoBackend'
+    }
+})
+
+EVENT_TRACKING_BACKENDS.update({
+    'mongo': {
+        'ENGINE': 'eventtracking.backends.mongodb.MongoBackend',
+        'OPTIONS': {
+            'database': 'track'
+        }
     }
 })
 
@@ -93,13 +96,18 @@ STATICFILES_FINDERS += ('pipeline.finders.PipelineFinder', )
 BULK_EMAIL_DEFAULT_FROM_EMAIL = "test@test.org"
 
 # Forums are disabled in test.py to speed up unit tests, but we do not have
-# per-test control for acceptance tests
-# For consistency in user-experience, keep the value of this setting in sync with
-# the one in cms/envs/acceptance.py
-FEATURES['ENABLE_DISCUSSION_SERVICE'] = True
+# per-test control for lettuce acceptance tests.
+# If you are writing an acceptance test that needs the discussion service enabled,
+# do not write it in lettuce, but instead write it using bok-choy.
+# DO NOT CHANGE THIS SETTING HERE.
+FEATURES['ENABLE_DISCUSSION_SERVICE'] = False
 
 # Use the auto_auth workflow for creating users and logging them in
 FEATURES['AUTOMATIC_AUTH_FOR_TESTING'] = True
+
+# Third-party auth is enabled in lms/envs/test.py for unittests, but we don't
+# yet want it for acceptance tests.
+FEATURES['ENABLE_THIRD_PARTY_AUTH'] = False
 
 # Enable fake payment processing page
 FEATURES['ENABLE_PAYMENT_FAKE'] = True
@@ -131,8 +139,7 @@ CC_PROCESSOR['CyberSource']['PURCHASE_ENDPOINT'] = "/shoppingcart/payment_fake"
 # We do not yet understand why this occurs. Setting this to true is a stopgap measure
 USE_I18N = True
 
-FEATURES['ENABLE_FEEDBACK_SUBMISSION'] = True
-FEEDBACK_SUBMISSION_EMAIL = 'dummy@example.com'
+FEATURES['ENABLE_FEEDBACK_SUBMISSION'] = False
 
 # Include the lettuce app for acceptance testing, including the 'harvest' django-admin command
 INSTALLED_APPS += ('lettuce.django',)
@@ -176,6 +183,6 @@ XQUEUE_INTERFACE = {
 }
 
 # Point the URL used to test YouTube availability to our stub YouTube server
-YOUTUBE['API'] = 'youtube.com/iframe_api'
+YOUTUBE['API'] = "127.0.0.1:{0}/get_youtube_api/".format(YOUTUBE_PORT)
 YOUTUBE['TEST_URL'] = "127.0.0.1:{0}/test_youtube/".format(YOUTUBE_PORT)
 YOUTUBE['TEXT_API']['url'] = "127.0.0.1:{0}/test_transcripts_youtube/".format(YOUTUBE_PORT)

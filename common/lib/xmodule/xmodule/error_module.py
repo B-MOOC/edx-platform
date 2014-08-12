@@ -11,9 +11,9 @@ import sys
 from lxml import etree
 from xmodule.x_module import XModule, XModuleDescriptor
 from xmodule.errortracker import exc_info_to_str
-from xmodule.modulestore import Location
 from xblock.fields import String, Scope, ScopeIds
 from xblock.field_data import DictFieldData
+from xmodule.modulestore import EdxJSONEncoder
 
 
 log = logging.getLogger(__name__)
@@ -81,7 +81,6 @@ class ErrorDescriptor(ErrorFields, XModuleDescriptor):
 
     @classmethod
     def _construct(cls, system, contents, error_msg, location):
-        location = Location(location)
 
         if error_msg is None:
             # this string is not marked for translation because we don't have
@@ -100,7 +99,7 @@ class ErrorDescriptor(ErrorFields, XModuleDescriptor):
 
         # real metadata stays in the content, but add a display name
         field_data = DictFieldData({
-            'error_msg': str(error_msg),
+            'error_msg': unicode(error_msg),
             'contents': contents,
             'location': location,
             'category': 'error'
@@ -123,7 +122,7 @@ class ErrorDescriptor(ErrorFields, XModuleDescriptor):
     def from_json(cls, json_data, system, location, error_msg='Error not available'):
         return cls._construct(
             system,
-            json.dumps(json_data, skipkeys=False, indent=4),
+            json.dumps(json_data, skipkeys=False, indent=4, cls=EdxJSONEncoder),
             error_msg,
             location=location
         )

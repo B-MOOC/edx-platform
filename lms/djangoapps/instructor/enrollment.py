@@ -14,6 +14,9 @@ from student.models import CourseEnrollment, CourseEnrollmentAllowed
 from courseware.models import StudentModule
 from edxmako.shortcuts import render_to_string
 
+from submissions import api as sub_api  # installed from the edx-submissions repository
+from student.models import anonymous_id_for_user
+
 from microsite_configuration import microsite
 
 # For determining if a shibboleth course
@@ -81,7 +84,6 @@ def enroll_email(course_id, student_email, auto_enroll=False, email_students=Fal
     returns two EmailEnrollmentState's
         representing state before and after the action.
     """
-
     previous_state = EmailEnrollmentState(course_id, student_email)
 
     if previous_state.user:
@@ -116,7 +118,6 @@ def unenroll_email(course_id, student_email, email_students=False, email_params=
     returns two EmailEnrollmentState's
         representing state before and after the action.
     """
-
     previous_state = EmailEnrollmentState(course_id, student_email)
 
     if previous_state.enrollment:
@@ -175,11 +176,28 @@ def reset_student_attempts(course_id, student, module_state_key, delete_module=F
     `problem_to_reset` is the name of a problem e.g. 'L2Node1'.
     To build the module_state_key 'problem/' and course information will be appended to `problem_to_reset`.
 
-    Throws ValueError if `problem_state` is invalid JSON.
+    Raises:
+        ValueError: `problem_state` is invalid JSON.
+        StudentModule.DoesNotExist: could not load the student module.
+        submissions.SubmissionError: unexpected error occurred while resetting the score in the submissions API.
+
     """
-    module_to_reset = StudentModule.objects.get(student_id=student.id,
-                                                course_id=course_id,
-                                                module_state_key=module_state_key)
+    # Reset the student's score in the submissions API
+    # Currently this is used only by open assessment (ORA 2)
+    # We need to do this *before* retrieving the `StudentModule` model,
+    # because it's possible for a score to exist even if no student module exists.
+    if delete_module:
+        sub_api.reset_score(
+            anonymous_id_for_user(student, course_id),
+            course_id.to_deprecated_string(),
+            module_state_key.to_deprecated_string(),
+        )
+
+    module_to_reset = StudentModule.objects.get(
+        student_id=student.id,
+        course_id=course_id,
+        module_state_key=module_state_key
+    )
 
     if delete_module:
         module_to_reset.delete()
@@ -203,7 +221,7 @@ def _reset_module_attempts(studentmodule):
     studentmodule.save()
 
 
-def get_email_params(course, auto_enroll):
+def get_email_params(course, auto_enroll, secure=True):
     """
     Generate parameters used when parsing email templates.
 
@@ -211,8 +229,34 @@ def get_email_params(course, auto_enroll):
     Returns a dict of parameters
     """
 
-    stripped_site_name = settings.SITE_NAME
-    registration_url = 'https://' + stripped_site_name + reverse('student.views.register_user')
+    protocol = 'https' if secure else 'http'
+
+    stripped_site_name = microsite.get_value(
+        'SITE_NAME',
+        settings.SITE_NAME
+    )
+    # TODO: Use request.build_absolute_uri rather than '{proto}://{site}{path}'.format
+    # and check with the Services team that this works well with microsites
+    registration_url = u'{proto}://{site}{path}'.format(
+        proto=protocol,
+        site=stripped_site_name,
+        path=reverse('student.views.register_user')
+    )
+    course_url = u'{proto}://{site}{path}'.format(
+        proto=protocol,
+        site=stripped_site_name,
+        path=reverse('course_root', kwargs={'course_id': course.id.to_deprecated_string()})
+    )
+
+    # We can't get the url to the course's About page if the marketing site is enabled.
+    course_about_url = None
+    if not settings.FEATURES.get('ENABLE_MKTG_SITE', False):
+        course_about_url = u'{proto}://{site}{path}'.format(
+            proto=protocol,
+            site=stripped_site_name,
+            path=reverse('about_course', kwargs={'course_id': course.id.to_deprecated_string()})
+        )
+
     is_shib_course = uses_shib(course)
 
     # Composition of email
@@ -221,8 +265,8 @@ def get_email_params(course, auto_enroll):
         'registration_url': registration_url,
         'course': course,
         'auto_enroll': auto_enroll,
-        'course_url': 'https://' + stripped_site_name + '/courses/' + course.id,
-        'course_about_url': 'https://' + stripped_site_name + '/courses/' + course.id + '/about',
+        'course_url': course_url,
+        'course_about_url': course_about_url,
         'is_shib_course': is_shib_course,
     }
     return email_params

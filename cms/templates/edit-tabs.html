@@ -1,4 +1,5 @@
 <%inherit file="base.html" />
+<%def name="online_help_token()"><% return "pages" %></%def>
 <%namespace name='static' file='static_content.html'/>
 <%!
   from django.utils.translation import ugettext as _
@@ -8,20 +9,30 @@
 <%block name="title">${_("Pages")}</%block>
 <%block name="bodyclass">is-signedin course view-static-pages</%block>
 
+<%block name="header_extras">
+% for template_name in ["basic-modal", "modal-button", "edit-xblock-modal", "editor-mode-button"]:
+<script type="text/template" id="${template_name}-tpl">
+    <%static:include path="js/${template_name}.underscore" />
+</script>
+% endfor
+</%block>
+
 <%block name="jsextra">
 <script type='text/javascript'>
     require(["js/models/explicit_url", "coffee/src/views/tabs",
         "xmodule", "coffee/src/main", "xblock/cms.runtime.v1"],
-            function (TabsModel, TabsEditView) {
-                var model = new TabsModel({
-                    id: "${course_locator}",
-                    explicit_url: "${course_locator.url_reverse('tabs')}"
-                });
+            function (TabsModel, TabsEditView, xmoduleLoader) {
+                xmoduleLoader.done(function () {
+                    var model = new TabsModel({
+                        id: "${context_course.location}",
+                        explicit_url: "${reverse('contentstore.views.tabs_handler', kwargs={'course_key_string': context_course.id})}"
+                    });
 
-                new TabsEditView({
-                    el: $('.tab-list'),
-                    model: model,
-                    mast: $('.wrapper-mast')
+                    new TabsEditView({
+                        el: $('.tab-list'),
+                        model: model,
+                        mast: $('.wrapper-mast')
+                    });
                 });
             });
   </script>
@@ -116,7 +127,7 @@
                       </div>
 
                       % if tab.is_movable:
-                        <div class="drag-handle" data-tooltip="${_('Drag to reorder')}">
+                        <div class="drag-handle action" data-tooltip="${_('Drag to reorder')}">
                           <span class="sr">${_("Drag to reorder")}</span>
                         </div>
                       % else:

@@ -29,9 +29,10 @@ After the course start date has passed, whether a student can see your course ma
   of a section or subsection is before the release date, the content of that course element is
   not yet published, and not visible to students. 
   
-  For a student to view a subsection, both it and its containing section must be have a release date
-  earlier than the current date.  It is possible that a section is released, but a subsection within it
-  is not released. In this case, students cannot view that subsection.
+  For a student to view a subsection, both it and its containing section must
+  have a release date that is earlier than the current date. It is possible to
+  have a section that is released, but a subsection within that section that is
+  not released. In this case, students cannot view that subsection.
   
   Course staff can see sections and subsections before the release date in the LMS.
   
@@ -144,8 +145,10 @@ Modifying Public Units
 
 To make revisions to a unit that has been published, you create and edit a draft of that unit. 
 
-.. warning:: There are additional implications to modifying the public unit that has graded problem 
-            components students may have already completed.  See :ref:`Modifying a Released Problem` for more information.
+.. Warning:: 
+ There are additional implications to modifying a public unit that has graded
+ problem components students may have already completed.  See :ref:`Modifying a
+ Released Problem` for more information.
 
 To create a draft, go to the unit's page, and then click **edit a draft** in the right pane.
 

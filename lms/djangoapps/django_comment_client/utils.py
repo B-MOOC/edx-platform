@@ -15,8 +15,10 @@ from edxmako import lookup_template
 import pystache_custom as pystache
 
 from xmodule.modulestore.django import modulestore
-from xmodule.modulestore import Location
 from django.utils.timezone import UTC
+from opaque_keys.edx.locations import i4xEncoder
+from opaque_keys.edx.keys import CourseKey
+import json
 
 log = logging.getLogger(__name__)
 
@@ -55,10 +57,7 @@ def has_forum_access(uname, course_id, rolename):
 
 
 def _get_discussion_modules(course):
-    all_modules = modulestore().get_items(
-        Location('i4x', course.location.org, course.location.course, 'discussion', None),
-        course_id=course.id
-    )
+    all_modules = modulestore().get_items(course.id, category='discussion')
 
     def has_required_keys(module):
         for key in ('discussion_id', 'discussion_category', 'discussion_target'):
@@ -137,6 +136,9 @@ def get_discussion_category_map(course):
 
     modules = _get_discussion_modules(course)
 
+    is_course_cohorted = course.is_cohorted
+    cohorted_discussion_ids = course.cohorted_discussions
+
     for module in modules:
         id = module.discussion_id
         title = module.discussion_target
@@ -181,7 +183,8 @@ def get_discussion_category_map(course):
         for entry in entries:
             node[level]["entries"][entry["title"]] = {"id": entry["id"],
                                                       "sort_key": entry["sort_key"],
-                                                      "start_date": entry["start_date"]}
+                                                      "start_date": entry["start_date"],
+                                                      "is_cohorted": is_course_cohorted}
 
     # TODO.  BUG! : course location is not unique across multiple course runs!
     # (I think Kevin already noticed this)  Need to send course_id with requests, store it
@@ -189,7 +192,8 @@ def get_discussion_category_map(course):
     for topic, entry in course.discussion_topics.items():
         category_map['entries'][topic] = {"id": entry["id"],
                                           "sort_key": entry.get("sort_key", topic),
-                                          "start_date": datetime.now(UTC())}
+                                          "start_date": datetime.now(UTC()),
+                                          "is_cohorted": is_course_cohorted and entry["id"] in cohorted_discussion_ids}
 
     _sort_map_entries(category_map, course.discussion_sort_alpha)
 
@@ -198,7 +202,7 @@ def get_discussion_category_map(course):
 
 class JsonResponse(HttpResponse):
     def __init__(self, data=None):
-        content = simplejson.dumps(data)
+        content = json.dumps(data, cls=i4xEncoder)
         super(JsonResponse, self).__init__(content,
                                            mimetype='application/json; charset=utf-8')
 
@@ -311,12 +315,16 @@ def render_mustache(template_name, dictionary, *args, **kwargs):
 
 
 def permalink(content):
+    if isinstance(content['course_id'], CourseKey):
+        course_id = content['course_id'].to_deprecated_string()
+    else:
+        course_id = content['course_id']
     if content['type'] == 'thread':
         return reverse('django_comment_client.forum.views.single_thread',
-                       args=[content['course_id'], content['commentable_id'], content['id']])
+                       args=[course_id, content['commentable_id'], content['id']])
     else:
         return reverse('django_comment_client.forum.views.single_thread',
-                       args=[content['course_id'], content['commentable_id'], content['thread_id']]) + '#' + content['id']
+                       args=[course_id, content['commentable_id'], content['thread_id']]) + '#' + content['id']
 
 
 def extend_content(content):
@@ -344,16 +352,16 @@ def add_courseware_context(content_list, course):
     for content in content_list:
         commentable_id = content['commentable_id']
         if commentable_id in id_map:
-            location = id_map[commentable_id]["location"].url()
+            location = id_map[commentable_id]["location"].to_deprecated_string()
             title = id_map[commentable_id]["title"]
 
-            url = reverse('jump_to', kwargs={"course_id": course.location.course_id,
+            url = reverse('jump_to', kwargs={"course_id": course.id.to_deprecated_string(),
                           "location": location})
 
             content.update({"courseware_url": url, "courseware_title": title})
 
 
-def safe_content(content):
+def safe_content(content, is_staff=False):
     fields = [
         'id', 'title', 'body', 'course_id', 'anonymous', 'anonymous_to_peers',
         'endorsed', 'parent_id', 'thread_id', 'votes', 'closed', 'created_at',
@@ -365,7 +373,7 @@ def safe_content(content):
 
     ]
 
-    if (content.get('anonymous') is False) and (content.get('anonymous_to_peers') is False):
+    if (content.get('anonymous') is False) and ((content.get('anonymous_to_peers') is False) or is_staff):
         fields += ['username', 'user_id']
 
     if 'children' in content:

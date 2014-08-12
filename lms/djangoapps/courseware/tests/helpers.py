@@ -67,7 +67,7 @@ class LoginEnrollmentTestCase(TestCase):
         self.email = 'foo@test.com'
         self.password = 'bar'
         self.username = 'test'
-        self.create_account(self.username,
+        self.user = self.create_account(self.username,
                             self.email, self.password)
         self.activate_user(self.email)
         self.login(self.email, self.password)
@@ -107,7 +107,9 @@ class LoginEnrollmentTestCase(TestCase):
         data = json.loads(resp.content)
         self.assertEqual(data['success'], True)
         # Check both that the user is created, and inactive
-        self.assertFalse(User.objects.get(email=email).is_active)
+        user = User.objects.get(email=email)
+        self.assertFalse(user.is_active)
+        return user
 
     def activate_user(self, email):
         """
@@ -130,7 +132,7 @@ class LoginEnrollmentTestCase(TestCase):
         """
         resp = self.client.post(reverse('change_enrollment'), {
             'enrollment_action': 'enroll',
-            'course_id': course.id,
+            'course_id': course.id.to_deprecated_string(),
         })
         result = resp.status_code == 200
         if verify:
@@ -142,5 +144,7 @@ class LoginEnrollmentTestCase(TestCase):
         Unenroll the currently logged-in user, and check that it worked.
         `course` is an instance of CourseDescriptor.
         """
-        check_for_post_code(self, 200, reverse('change_enrollment'), {'enrollment_action': 'unenroll',
-                                                                      'course_id': course.id})
+        check_for_post_code(self, 200, reverse('change_enrollment'), {
+            'enrollment_action': 'unenroll',
+            'course_id': course.id.to_deprecated_string()
+        })

@@ -93,6 +93,12 @@ class DarkLangMiddlewareTests(TestCase):
             self.process_request(accept='rel;q=1.0, unrel;q=0.5')
         )
 
+    def test_accept_with_syslang(self):
+        self.assertAcceptEquals(
+            'en;q=1.0, rel;q=0.8',
+            self.process_request(accept='en;q=1.0, rel;q=0.8, unrel;q=0.5')
+        )
+
     def test_accept_multiple_released_langs(self):
         DarkLangConfig(
             released_languages=('rel, unrel'),
@@ -207,4 +213,16 @@ class DarkLangMiddlewareTests(TestCase):
         self.assertSessionLangEquals(
             'rel',
             self.process_request(preview_lang='unrel', django_language='rel')
+        )
+
+    def test_accept_chinese_language_codes(self):
+        DarkLangConfig(
+            released_languages=('zh-cn, zh-hk, zh-tw'),
+            changed_by=self.user,
+            enabled=True
+        ).save()
+
+        self.assertAcceptEquals(
+            'zh-CN;q=1.0, zh-TW;q=0.5, zh-HK;q=0.3',
+            self.process_request(accept='zh-Hans;q=1.0, zh-Hant-TW;q=0.5, zh-HK;q=0.3')
         )

@@ -3,19 +3,57 @@
 
 from __future__ import absolute_import
 
+import time
+
 from lettuce import world, step
 from lettuce.django import django_url
 from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from student.models import CourseEnrollment
-from xmodule.modulestore import Location
 from xmodule.modulestore.django import modulestore
+from opaque_keys.edx.locations import SlashSeparatedCourseKey
 from xmodule.course_module import CourseDescriptor
 from courseware.courses import get_course_by_id
 from xmodule import seq_module, vertical_module
-
 from logging import getLogger
 logger = getLogger(__name__)
+
+
+@step('I (.*) capturing of screenshots before and after each step$')
+def configure_screenshots_for_all_steps(_step, action):
+    """
+    A step to be used in *.feature files. Enables/disables
+    automatic saving of screenshots before and after each step in a
+    scenario.
+    """
+    action = action.strip()
+    if action == 'enable':
+        world.auto_capture_screenshots = True
+    elif action == 'disable':
+        world.auto_capture_screenshots = False
+    else:
+        raise ValueError('Parameter `action` should be one of "enable" or "disable".')
+
+
+@world.absorb
+def capture_screenshot_before_after(func):
+    """
+    A decorator that will take a screenshot before and after the applied
+    function is run. Use this if you do not want to capture screenshots
+    for each step in a scenario, but rather want to debug a single function.
+    """
+    def inner(*args, **kwargs):
+        prefix = round(time.time() * 1000)
+
+        world.capture_screenshot("{}_{}_{}".format(
+            prefix, func.func_name, 'before'
+        ))
+        ret_val = func(*args, **kwargs)
+        world.capture_screenshot("{}_{}_{}".format(
+            prefix, func.func_name, 'after'
+        ))
+        return ret_val
+    return inner
 
 
 @step(u'The course "([^"]*)" exists$')
@@ -56,11 +94,11 @@ def i_am_registered_for_the_course(step, course):
 
     # Create the user
     world.create_user('robot', 'test')
-    u = User.objects.get(username='robot')
+    user = User.objects.get(username='robot')
 
     # If the user is not already enrolled, enroll the user.
     # TODO: change to factory
-    CourseEnrollment.enroll(u, course_id(course))
+    CourseEnrollment.enroll(user, course_id(course))
 
     world.log_in(username='robot', password='test')
 
@@ -81,16 +119,19 @@ def go_into_course(step):
 
 
 def course_id(course_num):
-    return "%s/%s/%s" % (world.scenario_dict['COURSE'].org, course_num,
-                         world.scenario_dict['COURSE'].url_name)
+    return SlashSeparatedCourseKey(
+        world.scenario_dict['COURSE'].org,
+        course_num,
+        world.scenario_dict['COURSE'].url_name
+    )
 
 
 def course_location(course_num):
-    return world.scenario_dict['COURSE'].location._replace(course=course_num)
+    return world.scenario_dict['COURSE'].location.replace(course=course_num)
 
 
 def section_location(course_num):
-    return world.scenario_dict['SECTION'].location._replace(course=course_num)
+    return world.scenario_dict['SECTION'].location.replace(course=course_num)
 
 
 def visit_scenario_item(item_key):
@@ -102,8 +143,8 @@ def visit_scenario_item(item_key):
     url = django_url(reverse(
         'jump_to',
         kwargs={
-            'course_id': world.scenario_dict['COURSE'].id,
-            'location': str(world.scenario_dict[item_key].location),
+            'course_id': world.scenario_dict['COURSE'].id.to_deprecated_string(),
+            'location': world.scenario_dict[item_key].location.to_deprecated_string(),
         }
     ))
 

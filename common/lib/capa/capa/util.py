@@ -1,22 +1,39 @@
+"""
+Utility functions for capa.
+"""
+import bleach
+
 from calc import evaluator
 from cmath import isinf
-
 #-----------------------------------------------------------------------------
 #
 # Utility functions used in CAPA responsetypes
 default_tolerance = '0.001%'
 
 
-def compare_with_tolerance(complex1, complex2, tolerance=default_tolerance, relative_tolerance=False):
+def compare_with_tolerance(student_complex, instructor_complex, tolerance=default_tolerance, relative_tolerance=False):
     """
-    Compare complex1 to complex2 with maximum tolerance tol.
+    Compare student_complex to instructor_complex with maximum tolerance tolerance.
 
-    If tolerance is type string, then it is counted as relative if it ends in %; otherwise, it is absolute.
+     - student_complex    :  student result (float complex number)
+     - instructor_complex    :  instructor result (float complex number)
+     - tolerance   :  float, or string (representing a float or a percentage)
+     - relative_tolerance: bool, to explicitly use passed tolerance as relative
 
-     - complex1    :  student result (float complex number)
-     - complex2    :  instructor result (float complex number)
-     - tolerance   :  string representing a number or float
-     - relative_tolerance: bool, used when`tolerance` is float to explicitly use passed tolerance as relative.
+     Note: when a tolerance is a percentage (i.e. '10%'), it will compute that
+     percentage of the instructor result and yield a number.
+
+     If relative_tolerance is set to False, it will use that value and the
+     instructor result to define the bounds of valid student result:
+     instructor_complex = 10, tolerance = '10%' will give [9.0, 11.0].
+
+     If relative_tolerance is set to True, it will use that value and both
+     instructor result and student result to define the bounds of valid student
+     result:
+     instructor_complex = 10, student_complex = 20, tolerance = '10%' will give
+     [8.0, 12.0].
+     This is typically used internally to compare float, with a
+     default_tolerance = '0.001%'.
 
      Default tolerance of 1e-3% is added to compare two floats for
      near-equality (to handle machine representation errors).
@@ -29,23 +46,28 @@ def compare_with_tolerance(complex1, complex2, tolerance=default_tolerance, rela
         In [212]: 1.9e24 - 1.9*10**24
         Out[212]: 268435456.0
     """
-    if relative_tolerance:
-        tolerance = tolerance * max(abs(complex1), abs(complex2))
-    elif tolerance.endswith('%'):
-        tolerance = evaluator(dict(), dict(), tolerance[:-1]) * 0.01
-        tolerance = tolerance * max(abs(complex1), abs(complex2))
-    else:
-        tolerance = evaluator(dict(), dict(), tolerance)
+    if isinstance(tolerance, str):
+        if tolerance == default_tolerance:
+            relative_tolerance = True
+        if tolerance.endswith('%'):
+            tolerance = evaluator(dict(), dict(), tolerance[:-1]) * 0.01
+            if not relative_tolerance:
+                tolerance = tolerance * abs(instructor_complex)
+        else:
+            tolerance = evaluator(dict(), dict(), tolerance)
 
-    if isinf(complex1) or isinf(complex2):
-        # If an input is infinite, we can end up with `abs(complex1-complex2)` and
+    if relative_tolerance:
+        tolerance = tolerance * max(abs(student_complex), abs(instructor_complex))
+
+    if isinf(student_complex) or isinf(instructor_complex):
+        # If an input is infinite, we can end up with `abs(student_complex-instructor_complex)` and
         # `tolerance` both equal to infinity. Then, below we would have
         # `inf <= inf` which is a fail. Instead, compare directly.
-        return complex1 == complex2
+        return student_complex == instructor_complex
     else:
         # v1 and v2 are, in general, complex numbers:
         # there are some notes about backward compatibility issue: see responsetypes.get_staff_ans()).
-        return abs(complex1 - complex2) <= tolerance
+        return abs(student_complex - instructor_complex) <= tolerance
 
 
 def contextualize_text(text, context):  # private
@@ -116,3 +138,27 @@ def find_with_default(node, path, default):
         return v.text
     else:
         return default
+
+
+def sanitize_html(html_code):
+    """
+    Sanitize html_code for safe embed on LMS pages.
+
+    Used to sanitize XQueue responses from Matlab.
+    """
+    attributes = bleach.ALLOWED_ATTRIBUTES.copy()
+    # Yuck! but bleach does not offer the option of passing in allowed_protocols,
+    # and matlab uses data urls for images
+    if u'data' not in bleach.BleachSanitizer.allowed_protocols:
+        bleach.BleachSanitizer.allowed_protocols.append(u'data')
+    attributes.update({
+        '*': ['class', 'style', 'id'],
+        'audio': ['controls', 'autobuffer', 'autoplay', 'src'],
+        'img': ['src', 'width', 'height', 'class']
+    })
+    output = bleach.clean(html_code,
+        tags=bleach.ALLOWED_TAGS + ['div', 'p', 'audio', 'pre', 'img', 'span'],
+        styles=['white-space'],
+        attributes=attributes
+    )
+    return output

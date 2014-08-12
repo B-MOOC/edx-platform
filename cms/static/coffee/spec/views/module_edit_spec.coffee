@@ -1,4 +1,4 @@
-define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmodule"], ($, ModuleEdit, ModuleModel) ->
+define ["jquery", "js/spec_helpers/edit_helpers", "coffee/src/views/module_edit", "js/models/module_info", "xmodule"], ($, edit_helpers, ModuleEdit, ModuleModel) ->
 
     describe "ModuleEdit", ->
       beforeEach ->
@@ -6,7 +6,8 @@ define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmod
             id: "stub-id"
 
         setFixtures """
-        <li class="component" id="stub-id">
+        <ul>
+        <li class="component" id="stub-id" data-locator="stub-id">
           <div class="component-editor">
             <div class="module-editor">
               ${editor}
@@ -18,12 +19,14 @@ define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmod
             <a href="#" class="edit-button"><span class="edit-icon white"></span>Edit</a>
             <a href="#" class="delete-button"><span class="delete-icon white"></span>Delete</a>
           </div>
-          <span class="drag-handle"></span>
+          <span class="drag-handle action"></span>
           <section class="xblock xblock-student_view xmodule_display xmodule_stub" data-type="StubModule">
             <div id="stub-module-content"/>
           </section>
         </li>
+        </ul>
         """
+        edit_helpers.installEditTemplates(true);
         spyOn($, 'ajax').andReturn(@moduleData)
 
         @moduleEdit = new ModuleEdit(
@@ -55,10 +58,12 @@ define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmod
         describe "render", ->
           beforeEach ->
             spyOn(@moduleEdit, 'loadDisplay')
-            spyOn(@moduleEdit, 'loadEdit')
             spyOn(@moduleEdit, 'delegateEvents')
             spyOn($.fn, 'append')
             spyOn($, 'getScript').andReturn($.Deferred().resolve().promise())
+
+            window.MockXBlock = (runtime, element) ->
+              return { }
 
             window.loadedXBlockResources = undefined
 
@@ -75,10 +80,14 @@ define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmod
               ]
             )
 
+          afterEach ->
+            window.MockXBlock = null
+
           it "loads the module preview via ajax on the view element", ->
             expect($.ajax).toHaveBeenCalledWith(
               url: "/xblock/#{@moduleEdit.model.id}/student_view"
               type: "GET"
+              cache: false
               headers:
                 Accept: 'application/json'
               success: jasmine.any(Function)
@@ -92,23 +101,25 @@ define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmod
               success: jasmine.any(Function)
             )
             expect(@moduleEdit.loadDisplay).toHaveBeenCalled()
-            expect(@moduleEdit.loadEdit).not.toHaveBeenCalled()
             expect(@moduleEdit.delegateEvents).toHaveBeenCalled()
 
           it "loads the editing view via ajax on demand", ->
+            edit_helpers.installEditTemplates(true);
             expect($.ajax).not.toHaveBeenCalledWith(
               url: "/xblock/#{@moduleEdit.model.id}/studio_view"
               type: "GET"
+              cache : false
               headers:
                 Accept: 'application/json'
               success: jasmine.any(Function)
             )
-            expect(@moduleEdit.loadEdit).not.toHaveBeenCalled()
 
             @moduleEdit.clickEditButton({'preventDefault': jasmine.createSpy('event.preventDefault')})
 
+            mockXBlockEditorHtml = readFixtures('mock/mock-xblock-editor.underscore')
+
             $.ajax.mostRecentCall.args[0].success(
-              html: '<div>Response html</div>'
+              html: mockXBlockEditorHtml
               resources: [
                 ['hash1', {kind: 'text', mimetype: 'text/css', data: 'inline-css'}],
                 ['hash2', {kind: 'url', mimetype: 'text/css', data: 'css-url'}],
@@ -122,11 +133,11 @@ define ["jquery", "coffee/src/views/module_edit", "js/models/module_info", "xmod
             expect($.ajax).toHaveBeenCalledWith(
               url: "/xblock/#{@moduleEdit.model.id}/studio_view"
               type: "GET"
+              cache: false
               headers:
                 Accept: 'application/json'
               success: jasmine.any(Function)
             )
-            expect(@moduleEdit.loadEdit).toHaveBeenCalled()
             expect(@moduleEdit.delegateEvents).toHaveBeenCalled()
 
           it "loads inline css from fragments", ->

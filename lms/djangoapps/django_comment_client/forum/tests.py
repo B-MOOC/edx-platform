@@ -1,4 +1,5 @@
 import json
+from django.http import Http404
 from django.test.utils import override_settings
 from django.test.client import Client, RequestFactory
 from xmodule.modulestore.tests.factories import CourseFactory
@@ -63,7 +64,7 @@ class ViewsExceptionTestCase(UrlResetMixin, ModuleStoreTestCase):
         mock_from_django_user.return_value = Mock()
 
         url = reverse('django_comment_client.forum.views.user_profile',
-                      kwargs={'course_id': self.course.id, 'user_id': '12345'})  # There is no user 12345
+                      kwargs={'course_id': self.course.id.to_deprecated_string(), 'user_id': '12345'})  # There is no user 12345
         self.response = self.client.get(url)
         self.assertEqual(self.response.status_code, 404)
 
@@ -80,7 +81,7 @@ class ViewsExceptionTestCase(UrlResetMixin, ModuleStoreTestCase):
         mock_from_django_user.return_value = Mock()
 
         url = reverse('django_comment_client.forum.views.followed_threads',
-                      kwargs={'course_id': self.course.id, 'user_id': '12345'})  # There is no user 12345
+                      kwargs={'course_id': self.course.id.to_deprecated_string(), 'user_id': '12345'})  # There is no user 12345
         self.response = self.client.get(url)
         self.assertEqual(self.response.status_code, 404)
 
@@ -105,22 +106,32 @@ def make_mock_thread_data(text, thread_id, include_children):
     return thread_data
 
 
-def make_mock_request_impl(text, thread_id=None):
+def make_mock_request_impl(text, thread_id="dummy_thread_id"):
     def mock_request_impl(*args, **kwargs):
         url = args[1]
+        data = None
         if url.endswith("threads"):
             data = {
-                "collection": [make_mock_thread_data(text, "dummy_thread_id", False)]
+                "collection": [make_mock_thread_data(text, thread_id, False)]
             }
         elif thread_id and url.endswith(thread_id):
             data = make_mock_thread_data(text, thread_id, True)
-        else: # user query
+        elif "/users/" in url:
             data = {
+                "default_sort_key": "date",
                 "upvoted_ids": [],
                 "downvoted_ids": [],
                 "subscribed_thread_ids": [],
             }
-        return Mock(status_code=200, text=json.dumps(data), json=Mock(return_value=data))
+            # comments service adds these attributes when course_id param is present
+            if kwargs.get('params', {}).get('course_id'):
+                data.update({
+                    "threads_count": 1,
+                    "comments_count": 2
+                })
+        if data:
+            return Mock(status_code=200, text=json.dumps(data), json=Mock(return_value=data))
+        return Mock(status_code=404)
     return mock_request_impl
 
 
@@ -163,7 +174,7 @@ class SingleThreadTestCase(ModuleStoreTestCase):
         request.user = self.student
         response = views.single_thread(
             request,
-            self.course.id,
+            self.course.id.to_deprecated_string(),
             "dummy_discussion_id",
             "test_thread_id"
         )
@@ -198,7 +209,7 @@ class SingleThreadTestCase(ModuleStoreTestCase):
         request.user = self.student
         response = views.single_thread(
             request,
-            self.course.id,
+            self.course.id.to_deprecated_string(),
             "dummy_discussion_id",
             "test_thread_id"
         )
@@ -227,12 +238,135 @@ class SingleThreadTestCase(ModuleStoreTestCase):
         request = RequestFactory().post("dummy_url")
         response = views.single_thread(
             request,
-            self.course.id,
+            self.course.id.to_deprecated_string(),
             "dummy_discussion_id",
             "dummy_thread_id"
         )
         self.assertEquals(response.status_code, 405)
 
+    def test_not_found(self, mock_request):
+        request = RequestFactory().get("dummy_url")
+        request.user = self.student
+        # Mock request to return 404 for thread request
+        mock_request.side_effect = make_mock_request_impl("dummy", thread_id=None)
+        self.assertRaises(
+            Http404,
+            views.single_thread,
+            request,
+            self.course.id.to_deprecated_string(),
+            "test_discussion_id",
+            "test_thread_id"
+        )
+
+
+@override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
+@patch('requests.request')
+class UserProfileTestCase(ModuleStoreTestCase):
+
+    TEST_THREAD_TEXT = 'userprofile-test-text'
+    TEST_THREAD_ID = 'userprofile-test-thread-id'
+
+    def setUp(self):
+        self.course = CourseFactory.create()
+        self.student = UserFactory.create()
+        self.profiled_user = UserFactory.create()
+        CourseEnrollmentFactory.create(user=self.student, course_id=self.course.id)
+
+    def get_response(self, mock_request, params, **headers):
+        mock_request.side_effect = make_mock_request_impl(self.TEST_THREAD_TEXT, self.TEST_THREAD_ID)
+        request = RequestFactory().get("dummy_url", data=params, **headers)
+        request.user = self.student
+        response = views.user_profile(
+            request,
+            self.course.id.to_deprecated_string(),
+            self.profiled_user.id
+        )
+        mock_request.assert_any_call(
+            "get",
+            StringEndsWithMatcher('/users/{}/active_threads'.format(self.profiled_user.id)),
+            data=None,
+            params=PartialDictMatcher({
+                "course_id": self.course.id.to_deprecated_string(),
+                "page": params.get("page", 1),
+                "per_page": views.THREADS_PER_PAGE
+                }),
+            headers=ANY,
+            timeout=ANY
+        )
+        return response
+
+    def check_html(self, mock_request, **params):
+        response = self.get_response(mock_request, params)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
+        html = response.content
+        self.assertRegexpMatches(html, r'data-page="1"')
+        self.assertRegexpMatches(html, r'data-num-pages="1"')
+        self.assertRegexpMatches(html, r'<span>1</span> discussion started')
+        self.assertRegexpMatches(html, r'<span>2</span> comments')
+        self.assertRegexpMatches(html, r'&quot;id&quot;: &quot;{}&quot;'.format(self.TEST_THREAD_ID))
+        self.assertRegexpMatches(html, r'&quot;title&quot;: &quot;{}&quot;'.format(self.TEST_THREAD_TEXT))
+        self.assertRegexpMatches(html, r'&quot;body&quot;: &quot;{}&quot;'.format(self.TEST_THREAD_TEXT))
+        self.assertRegexpMatches(html, r'&quot;username&quot;: &quot;{}&quot;'.format(self.student.username))
+
+    def check_ajax(self, mock_request, **params):
+        response = self.get_response(mock_request, params, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/json; charset=utf-8')
+        response_data = json.loads(response.content)
+        self.assertEqual(
+            sorted(response_data.keys()),
+            ["annotated_content_info", "discussion_data", "num_pages", "page"]
+            )
+        self.assertEqual(len(response_data['discussion_data']), 1)
+        self.assertEqual(response_data["page"], 1)
+        self.assertEqual(response_data["num_pages"], 1)
+        self.assertEqual(response_data['discussion_data'][0]['id'], self.TEST_THREAD_ID)
+        self.assertEqual(response_data['discussion_data'][0]['title'], self.TEST_THREAD_TEXT)
+        self.assertEqual(response_data['discussion_data'][0]['body'], self.TEST_THREAD_TEXT)
+
+    def test_html(self, mock_request):
+        self.check_html(mock_request)
+
+    def test_html_p2(self, mock_request):
+        self.check_html(mock_request, page="2")
+
+    def test_ajax(self, mock_request):
+        self.check_ajax(mock_request)
+
+    def test_ajax_p2(self, mock_request):
+        self.check_ajax(mock_request, page="2")
+
+    def test_404_profiled_user(self, mock_request):
+        request = RequestFactory().get("dummy_url")
+        request.user = self.student
+        with self.assertRaises(Http404):
+            response = views.user_profile(
+                request,
+                self.course.id.to_deprecated_string(),
+                -999
+            )
+
+    def test_404_course(self, mock_request):
+        request = RequestFactory().get("dummy_url")
+        request.user = self.student
+        with self.assertRaises(Http404):
+            response = views.user_profile(
+                request,
+                "non/existent/course",
+                self.profiled_user.id
+            )
+
+    def test_post(self, mock_request):
+        mock_request.side_effect = make_mock_request_impl(self.TEST_THREAD_TEXT, self.TEST_THREAD_ID)
+        request = RequestFactory().post("dummy_url")
+        request.user = self.student
+        response = views.user_profile(
+            request,
+            self.course.id.to_deprecated_string(),
+            self.profiled_user.id
+        )
+        self.assertEqual(response.status_code, 405)
 
 @override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
 @patch('requests.request')
@@ -273,7 +407,7 @@ class CommentsServiceRequestHeadersTestCase(UrlResetMixin, ModuleStoreTestCase):
             reverse(
                 "django_comment_client.forum.views.single_thread",
                 kwargs={
-                    "course_id": self.course.id,
+                    "course_id": self.course.id.to_deprecated_string(),
                     "discussion_id": "dummy",
                     "thread_id": thread_id,
                 }
@@ -289,7 +423,7 @@ class CommentsServiceRequestHeadersTestCase(UrlResetMixin, ModuleStoreTestCase):
         self.client.get(
             reverse(
                 "django_comment_client.forum.views.forum_form_discussion",
-                kwargs={"course_id": self.course.id}
+                kwargs={"course_id": self.course.id.to_deprecated_string()}
             ),
         )
         self.assert_all_calls_have_header(mock_request, "X-Edx-Api-Key", "test_api_key")
@@ -308,7 +442,7 @@ class InlineDiscussionUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin):
         request = RequestFactory().get("dummy_url")
         request.user = self.student
 
-        response = views.inline_discussion(request, self.course.id, "dummy_discussion_id")
+        response = views.inline_discussion(request, self.course.id.to_deprecated_string(), "dummy_discussion_id")
         self.assertEqual(response.status_code, 200)
         response_data = json.loads(response.content)
         self.assertEqual(response_data["discussion_data"][0]["title"], text)
@@ -329,7 +463,7 @@ class ForumFormDiscussionUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin):
         request.user = self.student
         request.META["HTTP_X_REQUESTED_WITH"] = "XMLHttpRequest" # so request.is_ajax() == True
 
-        response = views.forum_form_discussion(request, self.course.id)
+        response = views.forum_form_discussion(request, self.course.id.to_deprecated_string())
         self.assertEqual(response.status_code, 200)
         response_data = json.loads(response.content)
         self.assertEqual(response_data["discussion_data"][0]["title"], text)
@@ -351,7 +485,7 @@ class SingleThreadUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin):
         request.user = self.student
         request.META["HTTP_X_REQUESTED_WITH"] = "XMLHttpRequest" # so request.is_ajax() == True
 
-        response = views.single_thread(request, self.course.id, "dummy_discussion_id", thread_id)
+        response = views.single_thread(request, self.course.id.to_deprecated_string(), "dummy_discussion_id", thread_id)
         self.assertEqual(response.status_code, 200)
         response_data = json.loads(response.content)
         self.assertEqual(response_data["content"]["title"], text)
@@ -372,7 +506,7 @@ class UserProfileUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin):
         request.user = self.student
         request.META["HTTP_X_REQUESTED_WITH"] = "XMLHttpRequest" # so request.is_ajax() == True
 
-        response = views.user_profile(request, self.course.id, str(self.student.id))
+        response = views.user_profile(request, self.course.id.to_deprecated_string(), str(self.student.id))
         self.assertEqual(response.status_code, 200)
         response_data = json.loads(response.content)
         self.assertEqual(response_data["discussion_data"][0]["title"], text)
@@ -393,7 +527,7 @@ class FollowedThreadsUnicodeTestCase(ModuleStoreTestCase, UnicodeTestMixin):
         request.user = self.student
         request.META["HTTP_X_REQUESTED_WITH"] = "XMLHttpRequest" # so request.is_ajax() == True
 
-        response = views.followed_threads(request, self.course.id, str(self.student.id))
+        response = views.followed_threads(request, self.course.id.to_deprecated_string(), str(self.student.id))
         self.assertEqual(response.status_code, 200)
         response_data = json.loads(response.content)
         self.assertEqual(response_data["discussion_data"][0]["title"], text)

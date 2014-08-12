@@ -15,8 +15,9 @@ from xblock.fragment import Fragment
 
 from xmodule.seq_module import SequenceModule
 from xmodule.vertical_module import VerticalModule
-from xmodule.x_module import shim_xmodule_js, XModuleDescriptor, XModule
-from lms.lib.xblock.runtime import quote_slashes
+from xmodule.x_module import shim_xmodule_js, XModuleDescriptor, XModule, PREVIEW_VIEWS, STUDIO_VIEW
+from xmodule.modulestore import ModuleStoreEnum
+from xmodule.modulestore.django import modulestore
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def wrap_fragment(fragment, new_content):
     return wrapper_frag
 
 
-def wrap_xblock(runtime_class, block, view, frag, context, display_name_only=False, extra_data=None):  # pylint: disable=unused-argument
+def wrap_xblock(runtime_class, block, view, frag, context, usage_id_serializer, display_name_only=False, extra_data=None):  # pylint: disable=unused-argument
     """
     Wraps the results of rendering an XBlock view in a standard <section> with identifying
     data so that the appropriate javascript module can be loaded onto it.
@@ -41,6 +42,8 @@ def wrap_xblock(runtime_class, block, view, frag, context, display_name_only=Fal
     :param view: The name of the view that rendered the fragment being wrapped
     :param frag: The :class:`Fragment` to be wrapped
     :param context: The context passed to the view being rendered
+    :param usage_id_serializer: A function to serialize the block's usage_id for use by the
+        front-end Javascript Runtime.
     :param display_name_only: If true, don't render the fragment content at all.
         Instead, just render the `display_name` of `block`
     :param extra_data: A dictionary with extra data values to be set on the wrapper
@@ -56,10 +59,10 @@ def wrap_xblock(runtime_class, block, view, frag, context, display_name_only=Fal
     css_classes = ['xblock', 'xblock-' + view]
 
     if isinstance(block, (XModule, XModuleDescriptor)):
-        if view == 'student_view':
+        if view in PREVIEW_VIEWS:
             # The block is acting as an XModule
             css_classes.append('xmodule_display')
-        elif view == 'studio_view':
+        elif view == STUDIO_VIEW:
             # The block is acting as an XModuleDescriptor
             css_classes.append('xmodule_edit')
 
@@ -72,13 +75,14 @@ def wrap_xblock(runtime_class, block, view, frag, context, display_name_only=Fal
         data['runtime-class'] = runtime_class
         data['runtime-version'] = frag.js_init_version
         data['block-type'] = block.scope_ids.block_type
-        data['usage-id'] = quote_slashes(unicode(block.scope_ids.usage_id).encode('utf-8'))
+        data['usage-id'] = usage_id_serializer(block.scope_ids.usage_id)
 
     template_context = {
         'content': block.display_name if display_name_only else frag.content,
         'classes': css_classes,
         'display_name': block.display_name_with_default,
-        'data_attributes': ' '.join(u'data-{}="{}"'.format(key, value) for key, value in data.items()),
+        'data_attributes': u' '.join(u'data-{}="{}"'.format(key, value)
+                                     for key, value in data.iteritems()),
     }
 
     return wrap_fragment(frag, render_to_string('xblock_wrapper.html', template_context))
@@ -143,7 +147,7 @@ def grade_histogram(module_id):
     WHERE courseware_studentmodule.module_id=%s
     GROUP BY courseware_studentmodule.grade"""
     # Passing module_id this way prevents sql-injection.
-    cursor.execute(q, [module_id])
+    cursor.execute(q, [module_id.to_deprecated_string()])
 
     grades = list(cursor.fetchall())
     grades.sort(key=lambda x: x[0])  # Add ORDER BY to sql query?
@@ -152,20 +156,36 @@ def grade_histogram(module_id):
     return grades
 
 
-def add_staff_debug_info(user, block, view, frag, context):  # pylint: disable=unused-argument
+def add_staff_markup(user, has_instructor_access, block, view, frag, context):  # pylint: disable=unused-argument
     """
     Updates the supplied module with a new get_html function that wraps
     the output of the old get_html function with additional information
-    for admin users only, including a histogram of student answers and the
-    definition of the xmodule
+    for admin users only, including a histogram of student answers, the
+    definition of the xmodule, and a link to view the module in Studio
+    if it is a Studio edited, mongo stored course.
 
-    Does nothing if module is a SequenceModule or a VerticalModule.
+    Does nothing if module is a SequenceModule.
     """
     # TODO: make this more general, eg use an XModule attribute instead
-    if isinstance(block, (SequenceModule, VerticalModule)):
+    if isinstance(block, VerticalModule) and (not context or not context.get('child_of_vertical', False)):
+        # check that the course is a mongo backed Studio course before doing work
+        is_mongo_course = modulestore().get_modulestore_type(block.location.course_key) == ModuleStoreEnum.Type.mongo
+        is_studio_course = block.course_edit_method == "Studio"
+
+        if is_studio_course and is_mongo_course:
+            # build edit link to unit in CMS. Can't use reverse here as lms doesn't load cms's urls.py
+            # reverse for contentstore.views.unit_handler
+            edit_link = "//" + settings.CMS_BASE + '/unit/' + unicode(block.location)
+
+            # return edit link in rendered HTML for display
+            return wrap_fragment(frag, render_to_string("edit_unit_link.html", {'frag_content': frag.content, 'edit_link': edit_link}))
+        else:
+            return frag
+
+    if isinstance(block, SequenceModule):
         return frag
 
-    block_id = block.id
+    block_id = block.location
     if block.has_score and settings.FEATURES.get('DISPLAY_HISTOGRAMS_TO_STAFF'):
         histogram = grade_histogram(block_id)
         render_histogram = len(histogram) > 0
@@ -224,5 +244,6 @@ def add_staff_debug_info(user, block, view, frag, context):  # pylint: disable=u
                      'render_histogram': render_histogram,
                      'block_content': frag.content,
                      'is_released': is_released,
+                     'has_instructor_access': has_instructor_access,
                      }
     return wrap_fragment(frag, render_to_string("staff_problem_info.html", staff_context))

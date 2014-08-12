@@ -78,7 +78,6 @@ class AnnotatableSteps(object):
             display_name="Test Annotation Module",
             data=DATA_TEMPLATE.format("\n".join(ANNOTATION_TEMPLATE.format(i) for i in xrange(count)))
         )
-
         self.annotations_count = count
 
     def view_component(self, step):
@@ -140,7 +139,7 @@ class AnnotatableSteps(object):
 
     def active_problem_selector(self, subselector):
         return 'div[data-problem-id="{}"] {}'.format(
-            world.scenario_dict['PROBLEMS'][self.active_problem].location.url(),
+            world.scenario_dict['PROBLEMS'][self.active_problem].location.to_deprecated_string(),
             subselector,
         )
 

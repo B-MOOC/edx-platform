@@ -157,7 +157,7 @@ class OpenEndedChild(object):
 
         self.location_string = location
         try:
-            self.location_string = self.location_string.url()
+            self.location_string = self.location_string.to_deprecated_string()
         except:
             pass
 
@@ -533,10 +533,6 @@ class OpenEndedChild(object):
     def get_eta(self):
         if self.controller_qs:
             response = self.controller_qs.check_for_eta(self.location_string)
-            try:
-                response = json.loads(response)
-            except:
-                pass
         else:
             return ""
 

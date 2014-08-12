@@ -19,6 +19,7 @@ TODO:
 
 import json
 from lxml import etree
+from lxml.html import fromstring
 import unittest
 import textwrap
 import xml.sax.saxutils as saxutils
@@ -27,6 +28,8 @@ from . import test_capa_system
 from capa import inputtypes
 from mock import ANY, patch
 from pyparsing import ParseException
+
+from capa.xqueue_interface import XQUEUE_TIMEOUT
 
 # just a handy shortcut
 lookup_tag = inputtypes.registry.get_class_for_tag
@@ -56,9 +59,7 @@ class OptionInputTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'value': 'Down',
             'options': [('Up', 'Up'), ('Down', 'Down'), ('Don\'t know', 'Don\'t know')],
-            'status': 'answered',
-            'status_class': 'answered',
-            'status_display': 'answered',
+            'status': inputtypes.Status('answered'),
             'label': '',
             'msg': '',
             'inline': False,
@@ -118,9 +119,7 @@ class ChoiceGroupTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'sky_input',
             'value': 'foil3',
-            'status': 'answered',
-            'status_class': 'answered',
-            'status_display': 'answered',
+            'status': inputtypes.Status('answered'),
             'label': '',
             'msg': '',
             'input_type': expected_input_type,
@@ -158,10 +157,10 @@ class JavascriptInputTest(unittest.TestCase):
         display_file = "my_files/hi.js"
 
         xml_str = """<javascriptinput id="prob_1_2" params="{params}" problem_state="{ps}"
-                                      display_class="{dc}" display_file="{df}"/>""".format(
-                                          params=params,
-                                          ps=quote_attr(problem_state),
-                                          dc=display_class, df=display_file)
+                                    display_class="{dc}" display_file="{df}"/>""".format(
+            params=params,
+            ps=quote_attr(problem_state),
+            dc=display_class, df=display_file)
 
         element = etree.fromstring(xml_str)
 
@@ -173,9 +172,7 @@ class JavascriptInputTest(unittest.TestCase):
         expected = {
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
-            'status': 'unanswered',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unanswered'),
             # 'label': '',
             'msg': '',
             'value': '3',
@@ -208,9 +205,7 @@ class TextLineTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'BumbleBee',
-            'status': 'unanswered',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unanswered'),
             'label': 'testing 123',
             'size': size,
             'msg': '',
@@ -242,9 +237,7 @@ class TextLineTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'BumbleBee',
-            'status': 'unanswered',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unanswered'),
             'label': '',
             'size': size,
             'msg': '',
@@ -288,9 +281,7 @@ class TextLineTest(unittest.TestCase):
                 'STATIC_URL': '/dummy-static/',
                 'id': 'prob_1_2',
                 'value': 'BumbleBee',
-                'status': 'unanswered',
-                'status_class': 'unanswered',
-                'status_display': u'unanswered',
+                'status': inputtypes.Status('unanswered'),
                 'label': '',
                 'size': size,
                 'msg': '',
@@ -331,9 +322,7 @@ class FileSubmissionTest(unittest.TestCase):
         expected = {
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
-            'status': 'queued',
-            'status_class': 'processing',
-            'status_display': u'queued',
+            'status': inputtypes.Status('queued'),
             'label': '',
             'msg': the_input.submitted_msg,
             'value': 'BumbleBee.py',
@@ -383,9 +372,7 @@ class CodeInputTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'print "good evening"',
-            'status': 'queued',
-            'status_class': 'processing',
-            'status_display': u'queued',
+            'status': inputtypes.Status('queued'),
             # 'label': '',
             'msg': the_input.submitted_msg,
             'mode': mode,
@@ -439,9 +426,7 @@ class MatlabTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'print "good evening"',
-            'status': 'queued',
-            'status_class': 'processing',
-            'status_display': u'queued',
+            'status': inputtypes.Status('queued'),
             # 'label': '',
             'msg': self.the_input.submitted_msg,
             'mode': self.mode,
@@ -472,9 +457,7 @@ class MatlabTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'print "good evening"',
-            'status': 'queued',
-            'status_class': 'processing',
-            'status_display': u'queued',
+            'status': inputtypes.Status('queued'),
             # 'label': '',
             'msg': the_input.submitted_msg,
             'mode': self.mode,
@@ -505,9 +488,7 @@ class MatlabTest(unittest.TestCase):
                 'STATIC_URL': '/dummy-static/',
                 'id': 'prob_1_2',
                 'value': 'print "good evening"',
-                'status': status,
-                'status_class': status,
-                'status_display': unicode(status),
+                'status': inputtypes.Status(status),
                 # 'label': '',
                 'msg': '',
                 'mode': self.mode,
@@ -524,10 +505,11 @@ class MatlabTest(unittest.TestCase):
 
             self.assertEqual(context, expected)
 
-    def test_rendering_while_queued(self):
+    @patch('capa.inputtypes.time.time', return_value=10)
+    def test_rendering_while_queued(self, time):
         state = {'value': 'print "good evening"',
                  'status': 'incomplete',
-                 'input_state': {'queuestate': 'queued'},
+                 'input_state': {'queuestate': 'queued', 'queuetime': 5},
                  }
         elt = etree.fromstring(self.xml)
 
@@ -537,9 +519,7 @@ class MatlabTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'print "good evening"',
-            'status': 'queued',
-            'status_class': 'processing',
-            'status_display': u'queued',
+            'status': inputtypes.Status('queued'),
             # 'label': '',
             'msg': the_input.submitted_msg,
             'mode': self.mode,
@@ -576,9 +556,10 @@ class MatlabTest(unittest.TestCase):
         self.assertTrue('queuekey' not in self.the_input.input_state)
         self.assertTrue('queuestate' not in self.the_input.input_state)
 
-    def test_ungraded_response_success(self):
+    @patch('capa.inputtypes.time.time', return_value=10)
+    def test_ungraded_response_success(self, time):
         queuekey = 'abcd'
-        input_state = {'queuekey': queuekey, 'queuestate': 'queued'}
+        input_state = {'queuekey': queuekey, 'queuestate': 'queued', 'queuetime': 5}
         state = {'value': 'print "good evening"',
                  'status': 'incomplete',
                  'input_state': input_state,
@@ -594,9 +575,10 @@ class MatlabTest(unittest.TestCase):
         self.assertTrue(input_state['queuestate'] is None)
         self.assertEqual(input_state['queue_msg'], inner_msg)
 
-    def test_ungraded_response_key_mismatch(self):
+    @patch('capa.inputtypes.time.time', return_value=10)
+    def test_ungraded_response_key_mismatch(self, time):
         queuekey = 'abcd'
-        input_state = {'queuekey': queuekey, 'queuestate': 'queued'}
+        input_state = {'queuekey': queuekey, 'queuestate': 'queued', 'queuetime': 5}
         state = {'value': 'print "good evening"',
                  'status': 'incomplete',
                  'input_state': input_state,
@@ -612,12 +594,60 @@ class MatlabTest(unittest.TestCase):
         self.assertEqual(input_state['queuestate'], 'queued')
         self.assertFalse('queue_msg' in input_state)
 
+    @patch('capa.inputtypes.time.time', return_value=20)
+    def test_matlab_response_timeout_not_exceeded(self, time):
+
+        state = {'input_state': {'queuestate': 'queued', 'queuetime': 5}}
+        elt = etree.fromstring(self.xml)
+
+        the_input = self.input_class(test_capa_system(), elt, state)
+        self.assertEqual(the_input.status, 'queued')
+
+
+    @patch('capa.inputtypes.time.time', return_value=45)
+    def test_matlab_response_timeout_exceeded(self, time):
+
+        state = {'input_state': {'queuestate': 'queued', 'queuetime': 5}}
+        elt = etree.fromstring(self.xml)
+
+        the_input = self.input_class(test_capa_system(), elt, state)
+        self.assertEqual(the_input.status, 'unsubmitted')
+        self.assertEqual(the_input.msg, 'No response from Xqueue within {} seconds. Aborted.'.format(XQUEUE_TIMEOUT))
+
+    @patch('capa.inputtypes.time.time', return_value=20)
+    def test_matlab_response_migration_of_queuetime(self, time):
+        """
+        Test if problem was saved before queuetime was introduced.
+        """
+        state = {'input_state': {'queuestate': 'queued'}}
+        elt = etree.fromstring(self.xml)
+
+        the_input = self.input_class(test_capa_system(), elt, state)
+        self.assertEqual(the_input.status, 'unsubmitted')
+
+    def test_matlab_api_key(self):
+        """
+        Test that api_key ends up in the xqueue payload
+        """
+        elt = etree.fromstring(self.xml)
+        system = test_capa_system()
+        system.matlab_api_key = 'test_api_key'
+        the_input = lookup_tag('matlabinput')(system, elt, {})
+
+        data = {'submission': 'x = 1234;'}
+        response = the_input.handle_ajax("plot", data)
+
+        body = system.xqueue['interface'].send_to_queue.call_args[1]['body']
+        payload = json.loads(body)
+        self.assertEqual('test_api_key', payload['token'])
+        self.assertEqual('2', payload['endpoint_version'])
+
     def test_get_html(self):
         # usual output
         output = self.the_input.get_html()
         self.assertEqual(
             etree.tostring(output),
-            """<div>{\'status\': \'queued\', \'button_enabled\': True, \'linenumbers\': \'true\', \'rows\': \'10\', \'queue_len\': \'3\', \'mode\': \'\', \'cols\': \'80\', \'value\': \'print "good evening"\', \'status_class\': \'processing\', \'queue_msg\': \'\', \'STATIC_URL\': \'/dummy-static/\', \'msg\': u\'Submitted. As soon as a response is returned, this message will be replaced by that feedback.\', \'matlab_editor_js\': \'/dummy-static/js/vendor/CodeMirror/octave.js\', \'hidden\': \'\', \'status_display\': u\'queued\', \'id\': \'prob_1_2\', \'tabsize\': 4}</div>"""
+            """<div>{\'status\': Status(\'queued\'), \'button_enabled\': True, \'rows\': \'10\', \'queue_len\': \'3\', \'mode\': \'\', \'cols\': \'80\', \'STATIC_URL\': \'/dummy-static/\', \'linenumbers\': \'true\', \'queue_msg\': \'\', \'value\': \'print "good evening"\', \'msg\': u\'Submitted. As soon as a response is returned, this message will be replaced by that feedback.\', \'matlab_editor_js\': \'/dummy-static/js/vendor/CodeMirror/octave.js\', \'hidden\': \'\', \'id\': \'prob_1_2\', \'tabsize\': 4}</div>"""
         )
 
         # test html, that is correct HTML5 html, but is not parsable by XML parser.
@@ -651,7 +681,7 @@ class MatlabTest(unittest.TestCase):
         queue_msg = textwrap.dedent("""
     <div class='matlabResponse'><div style='white-space:pre' class='commandWindowOutput'> <strong>if</strong> Conditionally execute statements.
     The general form of the <strong>if</strong> statement is
- 
+
        <strong>if</strong> expression
          statements
        ELSEIF expression
@@ -659,11 +689,11 @@ class MatlabTest(unittest.TestCase):
        ELSE
          statements
        END
- 
-    The statements are executed if the real part of the expression 
+
+    The statements are executed if the real part of the expression
     has all non-zero elements. The ELSE and ELSEIF parts are optional.
     Zero or more ELSEIF parts can be used as well as nested <strong>if</strong>'s.
-    The expression is usually of the form expr rop expr where 
+    The expression is usually of the form expr rop expr where
     rop is ==, <, >, <=, >=, or ~=.
     <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAjAAAAGkCAIAAACgj==" />
 
@@ -675,7 +705,7 @@ class MatlabTest(unittest.TestCase):
        else
          A(I,J) = 0;
        end
- 
+
     See also <a href="matlab:help relop">relop</a>, <a href="matlab:help else">else</a>, <a href="matlab:help elseif">elseif</a>, <a href="matlab:help end">end</a>, <a href="matlab:help for">for</a>, <a href="matlab:help while">while</a>, <a href="matlab:help switch">switch</a>.
 
     Reference page in Help browser
@@ -693,9 +723,62 @@ class MatlabTest(unittest.TestCase):
         the_input = self.input_class(test_capa_system(), elt, state)
         context = the_input._get_render_context()  # pylint: disable=W0212
         self.maxDiff = None
-        expected = u'\n<div class="matlabResponse"><div class="commandWindowOutput" style="white-space: pre;"> <strong>if</strong> Conditionally execute statements.\nThe general form of the <strong>if</strong> statement is\n\n   <strong>if</strong> expression\n     statements\n   ELSEIF expression\n     statements\n   ELSE\n     statements\n   END\n\nThe statements are executed if the real part of the expression \nhas all non-zero elements. The ELSE and ELSEIF parts are optional.\nZero or more ELSEIF parts can be used as well as nested <strong>if</strong>\'s.\nThe expression is usually of the form expr rop expr where \nrop is ==, &lt;, &gt;, &lt;=, &gt;=, or ~=.\n<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAjAAAAGkCAIAAACgj==">\n\nExample\n   if I == J\n     A(I,J) = 2;\n   elseif abs(I-J) == 1\n     A(I,J) = -1;\n   else\n     A(I,J) = 0;\n   end\n\nSee also <a>relop</a>, <a>else</a>, <a>elseif</a>, <a>end</a>, <a>for</a>, <a>while</a>, <a>switch</a>.\n\nReference page in Help browser\n   <a>doc if</a>\n\n</div><ul></ul></div>\n'
+        expected = fromstring(u'\n<div class="matlabResponse"><div class="commandWindowOutput" style="white-space: pre;"> <strong>if</strong> Conditionally execute statements.\nThe general form of the <strong>if</strong> statement is\n\n   <strong>if</strong> expression\n     statements\n   ELSEIF expression\n     statements\n   ELSE\n     statements\n   END\n\nThe statements are executed if the real part of the expression \nhas all non-zero elements. The ELSE and ELSEIF parts are optional.\nZero or more ELSEIF parts can be used as well as nested <strong>if</strong>\'s.\nThe expression is usually of the form expr rop expr where \nrop is ==, &lt;, &gt;, &lt;=, &gt;=, or ~=.\n<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAjAAAAGkCAIAAACgj==">\n\nExample\n   if I == J\n     A(I,J) = 2;\n   elseif abs(I-J) == 1\n     A(I,J) = -1;\n   else\n     A(I,J) = 0;\n   end\n\nSee also <a>relop</a>, <a>else</a>, <a>elseif</a>, <a>end</a>, <a>for</a>, <a>while</a>, <a>switch</a>.\n\nReference page in Help browser\n   <a>doc if</a>\n\n</div><ul></ul></div>\n')
+        received = fromstring(context['queue_msg'])
+        html_tree_equal(received, expected)
 
-        self.assertEqual(context['queue_msg'], expected)
+    def test_matlab_queue_message_allowed_tags(self):
+        """
+        Test allowed tags.
+        """
+        allowed_tags = ['div', 'p', 'audio', 'pre', 'span']
+        for tag in allowed_tags:
+            queue_msg = "<{0}>Test message</{0}>".format(tag)
+            state = {
+                'input_state': {'queue_msg': queue_msg},
+                'status': 'queued',
+            }
+            elt = etree.fromstring(self.xml)
+            the_input = self.input_class(test_capa_system(), elt, state)
+            self.assertEqual(the_input.queue_msg, queue_msg)
+
+    def test_matlab_queue_message_not_allowed_tag(self):
+        """
+        Test not allowed tag.
+        """
+        not_allowed_tag = 'script'
+        queue_msg = "<{0}>Test message</{0}>".format(not_allowed_tag)
+        state = {
+            'input_state': {'queue_msg': queue_msg},
+            'status': 'queued',
+        }
+        elt = etree.fromstring(self.xml)
+        the_input = self.input_class(test_capa_system(), elt, state)
+        expected = "&lt;script&gt;Test message&lt;/script&gt;"
+        self.assertEqual(the_input.queue_msg, expected)
+
+    def test_matlab_sanitize_msg(self):
+        """
+        Check that the_input.msg is sanitized.
+        """
+        not_allowed_tag = 'script'
+        self.the_input.msg = "<{0}>Test message</{0}>".format(not_allowed_tag)
+        expected = "&lt;script&gt;Test message&lt;/script&gt;"
+        self.assertEqual(self.the_input._get_render_context()['msg'], expected)
+
+
+def html_tree_equal(received, expected):
+    """
+    Returns whether two etree Elements are the same, with insensitivity to attribute order.
+    """
+    for attr in ('tag', 'attrib', 'text', 'tail'):
+        if getattr(received, attr) != getattr(expected, attr):
+            return False
+    if len(received) != len(expected):
+        return False
+    if any(not html_tree_equal(rec, exp) for rec, exp in zip(received, expected)):
+        return False
+    return True
 
 
 class SchematicTest(unittest.TestCase):
@@ -735,9 +818,7 @@ class SchematicTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': value,
-            'status': 'unsubmitted',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unsubmitted'),
             'label': '',
             'msg': '',
             'initial_value': initial_value,
@@ -781,9 +862,7 @@ class ImageInputTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': value,
-            'status': 'unsubmitted',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unsubmitted'),
             'label': '',
             'width': width,
             'height': height,
@@ -838,9 +917,7 @@ class CrystallographyTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': value,
-            'status': 'unsubmitted',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unsubmitted'),
             # 'label': '',
             'msg': '',
             'width': width,
@@ -882,9 +959,7 @@ class VseprTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': value,
-            'status': 'unsubmitted',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unsubmitted'),
             'msg': '',
             'width': width,
             'height': height,
@@ -916,9 +991,7 @@ class ChemicalEquationTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'H2OYeah',
-            'status': 'unanswered',
-            'status_class': 'unanswered',
-            'status_display': 'unanswered',
+            'status': inputtypes.Status('unanswered'),
             'label': '',
             'msg': '',
             'size': self.size,
@@ -1006,9 +1079,7 @@ class FormulaEquationTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': 'x^2+1/2',
-            'status': 'unanswered',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unanswered'),
             'label': '',
             'msg': '',
             'size': self.size,
@@ -1115,20 +1186,20 @@ class DragAndDropTest(unittest.TestCase):
                         "target_outline": "false",
                         "base_image": "/dummy-static/images/about_1.png",
                         "draggables": [
-{"can_reuse": "", "label": "Label 1", "id": "1", "icon": "", "target_fields": []},
-{"can_reuse": "", "label": "cc", "id": "name_with_icon", "icon": "/dummy-static/images/cc.jpg", "target_fields": []},
-{"can_reuse": "", "label": "arrow-left", "id": "with_icon", "icon": "/dummy-static/images/arrow-left.png", "can_reuse": "", "target_fields": []},
-{"can_reuse": "", "label": "Label2", "id": "5", "icon": "", "can_reuse": "", "target_fields": []},
-{"can_reuse": "", "label": "Mute", "id": "2", "icon": "/dummy-static/images/mute.png", "can_reuse": "", "target_fields": []},
-{"can_reuse": "", "label": "spinner", "id": "name_label_icon3", "icon": "/dummy-static/images/spinner.gif", "can_reuse": "", "target_fields": []},
-{"can_reuse": "", "label": "Star", "id": "name4", "icon": "/dummy-static/images/volume.png", "can_reuse": "", "target_fields": []},
-{"can_reuse": "", "label": "Label3", "id": "7", "icon": "", "can_reuse": "", "target_fields": []}],
+                            {"can_reuse": "", "label": "Label 1", "id": "1", "icon": "", "target_fields": []},
+                            {"can_reuse": "", "label": "cc", "id": "name_with_icon", "icon": "/dummy-static/images/cc.jpg", "target_fields": []},
+                            {"can_reuse": "", "label": "arrow-left", "id": "with_icon", "icon": "/dummy-static/images/arrow-left.png", "target_fields": []},
+                            {"can_reuse": "", "label": "Label2", "id": "5", "icon": "", "target_fields": []},
+                            {"can_reuse": "", "label": "Mute", "id": "2", "icon": "/dummy-static/images/mute.png", "target_fields": []},
+                            {"can_reuse": "", "label": "spinner", "id": "name_label_icon3", "icon": "/dummy-static/images/spinner.gif", "target_fields": []},
+                            {"can_reuse": "", "label": "Star", "id": "name4", "icon": "/dummy-static/images/volume.png", "target_fields": []},
+                            {"can_reuse": "", "label": "Label3", "id": "7", "icon": "", "target_fields": []}],
                         "one_per_target": "True",
                         "targets": [
-                {"y": "90", "x": "210", "id": "t1", "w": "90", "h": "90"},
-                {"y": "160", "x": "370", "id": "t2", "w": "90", "h": "90"}
-                                    ]
-                    }
+                            {"y": "90", "x": "210", "id": "t1", "w": "90", "h": "90"},
+                            {"y": "160", "x": "370", "id": "t2", "w": "90", "h": "90"}
+                        ]
+        }
 
         the_input = lookup_tag('drag_and_drop_input')(test_capa_system(), element, state)
 
@@ -1137,9 +1208,7 @@ class DragAndDropTest(unittest.TestCase):
             'STATIC_URL': '/dummy-static/',
             'id': 'prob_1_2',
             'value': value,
-            'status': 'unsubmitted',
-            'status_class': 'unanswered',
-            'status_display': u'unanswered',
+            'status': inputtypes.Status('unsubmitted'),
             # 'label': '',
             'msg': '',
             'drag_and_drop_json': json.dumps(user_input)
@@ -1191,10 +1260,7 @@ class AnnotationInputTest(unittest.TestCase):
         expected = {
             'STATIC_URL': '/dummy-static/',
             'id': 'annotation_input',
-            'value': value,
-            'status': 'answered',
-            'status_class': 'answered',
-            'status_display': 'answered',
+            'status': inputtypes.Status('answered'),
             # 'label': '',
             'msg': '',
             'title': 'foo',
@@ -1254,9 +1320,7 @@ class TestChoiceText(unittest.TestCase):
         state = {
             'value': '{}',
             'id': 'choicetext_input',
-            'status': 'answered',
-            'status_class': 'answered',
-            'status_display': u'answered',
+            'status': inputtypes.Status('answered'),
         }
 
         first_input = self.build_choice_element('numtolerance_input', 'choiceinput_0_textinput_0', 'false', '')
@@ -1312,3 +1376,63 @@ class TestChoiceText(unittest.TestCase):
         """
         with self.assertRaisesRegexp(Exception, "Error in xml"):
             self.check_group('checkboxtextgroup', 'invalid', 'checkbox')
+
+
+class TestStatus(unittest.TestCase):
+    """
+    Tests for Status class
+    """
+    def test_str(self):
+        """
+        Test stringifing Status objects
+        """
+        statobj = inputtypes.Status('test')
+        self.assertEqual(str(statobj), 'test')
+        self.assertEqual(unicode(statobj), u'test')
+
+    def test_classes(self):
+        """
+        Test that css classnames are correct
+        """
+        css_classes = [
+            ('unsubmitted', 'unanswered'),
+            ('incomplete', 'incorrect'),
+            ('queued', 'processing'),
+            ('correct', 'correct'),
+            ('test', 'test'),
+        ]
+        for status, classname in css_classes:
+            statobj = inputtypes.Status(status)
+            self.assertEqual(statobj.classname, classname)
+
+    def test_display_names(self):
+        """
+        Test that display names are correct
+        """
+        names = [
+            ('correct', u'correct'),
+            ('incorrect', u'incorrect'),
+            ('incomplete', u'incomplete'),
+            ('unanswered', u'unanswered'),
+            ('unsubmitted', u'unanswered'),
+            ('queued', u'processing'),
+            ('dave', u'dave'),
+        ]
+        for status, display_name in names:
+            statobj = inputtypes.Status(status)
+            self.assertEqual(statobj.display_name, display_name)
+
+    def test_translated_names(self):
+        """
+        Test that display names are "translated"
+        """
+        func = lambda t: t.upper()
+        # status is in the mapping
+        statobj = inputtypes.Status('queued', func)
+        self.assertEqual(statobj.display_name, u'PROCESSING')
+
+        # status is not in the mapping
+        statobj = inputtypes.Status('test', func)
+        self.assertEqual(statobj.display_name, u'test')
+        self.assertEqual(str(statobj), 'test')
+        self.assertEqual(statobj.classname, 'test')

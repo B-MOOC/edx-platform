@@ -2,60 +2,79 @@
 
 locales:
     - en  # English - Source Language
+    - am  # Amharic
     - ar  # Arabic
+    - az  # Azerbaijani
     - bg_BG  # Bulgarian (Bulgaria)
-    - bn  # Bengali
     - bn_BD  # Bengali (Bangladesh)
+    - bn_IN  # Bengali (India)
+    - bs  # Bosnian
     - ca  # Catalan
     - ca@valencia  # Catalan (Valencia)
     - cs  # Czech
     - cy  # Welsh
+    - da  # Danish
     - de_DE  # German (Germany)
     - el  # Greek
-    - en@lolcat  # LOLCAT English
-    - en@pirate  # Pirate English
+    # Don't pull these until we figure out why pages randomly display in these locales,
+    # when the user's browser is in English and the user is not logged in.
+#    - en@lolcat  # LOLCAT English
+#    - en@pirate  # Pirate English
     - es_419  # Spanish (Latin America)
     - es_AR  # Spanish (Argentina)
     - es_EC  # Spanish (Ecuador)
     - es_ES  # Spanish (Spain)
     - es_MX  # Spanish (Mexico)
     - es_PE  # Spanish (Peru)
-    - es_US  # Spanish (United States)
     - et_EE  # Estonian (Estonia)
+    - eu_ES  # Basque (Spain)
     - fa  # Persian
     - fa_IR  # Persian (Iran)
     - fi_FI  # Finnish (Finland)
+    - fil  # Filipino
     - fr  # French
     - gl  # Galician
+    - gu  # Gujarati
     - he  # Hebrew
     - hi  # Hindi
+    - hr  # Croatian
     - hu  # Hungarian
     - hy_AM  # Armenian (Armenia)
     - id  # Indonesian
     - it_IT  # Italian (Italy)
     - ja_JP  # Japanese (Japan)
+    - kk_KZ  # Kazakh (Kazakhstan)
     - km_KH  # Khmer (Cambodia)
+    - kn  # Kannada
     - ko_KR  # Korean (Korea)
     - lt_LT  # Lithuanian (Lithuania)
     - ml  # Malayalam
     - mn  # Mongolian
+    - mr  # Marathi
     - ms  # Malay
     - nb  # Norwegian Bokmål
     - ne  # Nepali
     - nl_NL  # Dutch (Netherlands)
+    - or  # Oriya
     - pl  # Polish
     - pt_BR  # Portuguese (Brazil)
     - pt_PT  # Portuguese (Portugal)
+    - ro  # Romanian
     - ru  # Russian
     - si  # Sinhala
     - sk  # Slovak
     - sl  # Slovenian
+    - sr  # Serbian
+    - ta  # Tamil
+    - te  # Telugu
     - th  # Thai
     - tr_TR  # Turkish (Turkey)
     - uk  # Ukranian
+    - ur  # Urdu
+    - uz  # Uzbek
     - vi  # Vietnamese
     - zh_CN  # Chinese (China)
-    - zh_CN.GB2312  # Chinese (China) (GB2312)
+    - zh_HK  # Chinese (Hong Kong)
     - zh_TW  # Chinese (Taiwan)
 
 
@@ -99,6 +118,9 @@ segment:
     mako.po:
         mako-studio.po:
             - cms/*
+    underscore.po:
+        underscore-studio.po:
+            - cms/*
 
 # How should the generate step merge files?
 generate_merge:
@@ -112,3 +134,5 @@ generate_merge:
     djangojs.po:
         - djangojs-partial.po
         - djangojs-studio.po
+        - underscore.po
+        - underscore-studio.po

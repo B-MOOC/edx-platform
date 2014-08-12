@@ -1,8 +1,8 @@
 define ["js/models/textbook", "js/models/chapter", "js/collections/chapter", "js/models/course",
     "js/collections/textbook", "js/views/show_textbook", "js/views/edit_textbook", "js/views/list_textbooks",
     "js/views/edit_chapter", "js/views/feedback_prompt", "js/views/feedback_notification",
-    "js/spec/create_sinon", "jasmine-stealth"],
-(Textbook, Chapter, ChapterSet, Course, TextbookSet, ShowTextbook, EditTextbook, ListTexbook, EditChapter, Prompt, Notification, create_sinon) ->
+    "js/spec_helpers/create_sinon", "js/spec_helpers/modal_helpers", "jasmine-stealth"],
+(Textbook, Chapter, ChapterSet, Course, TextbookSet, ShowTextbook, EditTextbook, ListTexbook, EditChapter, Prompt, Notification, create_sinon, modal_helpers) ->
     feedbackTpl = readFixtures('system-feedback.underscore')
 
     beforeEach ->
@@ -272,8 +272,8 @@ define ["js/models/textbook", "js/models/chapter", "js/collections/chapter", "js
         tpl = readFixtures("edit-chapter.underscore")
 
         beforeEach ->
-            setFixtures($("<script>", {id: "edit-chapter-tpl", type: "text/template"}).text(tpl))
-            appendSetFixtures($("<script>", {id: "system-feedback-tpl", type: "text/template"}).text(feedbackTpl))
+            modal_helpers.installModalTemplates()
+            appendSetFixtures($("<script>", {id: "edit-chapter-tpl", type: "text/template"}).text(tpl))
             @model = new Chapter
                 name: "Chapter 1"
                 asset_path: "/ch1.pdf"
@@ -308,7 +308,9 @@ define ["js/models/textbook", "js/models/chapter", "js/collections/chapter", "js
 #            expect(typeof ctorOptions.onSuccess).toBe('function')
 #            expect(uploadSpies.show).toHaveBeenCalled()
 
-        it "saves content when opening upload dialog", ->
+        # Disabling because this test does not close the modal dialog. This can cause
+        # tests that run after it to fail (see STUD-1963).
+        xit "saves content when opening upload dialog", ->
             @view.render()
             @view.$("input.chapter-name").val("rainbows")
             @view.$("input.chapter-asset-path").val("unicorns")

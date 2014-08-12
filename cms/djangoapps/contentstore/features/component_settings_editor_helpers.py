@@ -6,24 +6,28 @@ from nose.tools import assert_equal, assert_in  # pylint: disable=E0611
 from terrain.steps import reload_the_page
 from common import type_in_codemirror
 from selenium.webdriver.common.keys import Keys
+from cms.envs.common import FEATURES
 
 
 @world.absorb
-def create_component_instance(step, category, component_type=None, is_advanced=False):
+def create_component_instance(step, category, component_type=None, is_advanced=False, advanced_component=None):
     """
     Create a new component in a Unit.
 
     Parameters
     ----------
-    category: component type (discussion, html, problem, video)
+    category: component type (discussion, html, problem, video, advanced)
     component_type: for components with multiple templates, the link text in the menu
     is_advanced: for problems, is the desired component under the advanced menu?
+    advanced_component: for advanced components, the related value of policy key 'advanced_modules'
     """
-    assert_in(category, ['problem', 'html', 'video', 'discussion'])
+    assert_in(category, ['advanced', 'problem', 'html', 'video', 'discussion'])
 
     component_button_css = 'span.large-{}-icon'.format(category.lower())
     if category == 'problem':
         module_css = 'div.xmodule_CapaModule'
+    elif category == 'advanced':
+        module_css = 'div.xmodule_{}Module'.format(advanced_component.title())
     else:
         module_css = 'div.xmodule_{}Module'.format(category.title())
 
@@ -31,13 +35,13 @@ def create_component_instance(step, category, component_type=None, is_advanced=F
     # assert that one more was added.
     # We need to use world.browser.find_by_css instead of world.css_find
     # because it's ok if there are currently zero of them.
-    module_count_before =  len(world.browser.find_by_css(module_css))
+    module_count_before = len(world.browser.find_by_css(module_css))
 
     # Disable the jquery animation for the transition to the menus.
     world.disable_jquery_animations()
     world.css_click(component_button_css)
 
-    if category in ('problem', 'html'):
+    if category in ('problem', 'html', 'advanced'):
         world.wait_for_invisible(component_button_css)
         click_component_from_menu(category, component_type, is_advanced)
 
@@ -105,15 +109,34 @@ def click_component_from_menu(category, component_type, is_advanced):
 
 @world.absorb
 def edit_component_and_select_settings():
-    world.wait_for(lambda _driver: world.css_visible('a.edit-button'))
-    world.css_click('a.edit-button')
-    world.css_click('#settings-mode a')
+    world.edit_component()
+    world.ensure_settings_visible()
+
+
+@world.absorb
+def ensure_settings_visible():
+    # Select the 'settings' tab if there is one (it isn't displayed if it is the only option)
+    settings_button = world.browser.find_by_css('.settings-button')
+    if len(settings_button) > 0:
+        world.css_click('.settings-button')
 
 
 @world.absorb
 def edit_component():
     world.wait_for(lambda _driver: world.css_visible('a.edit-button'))
     world.css_click('a.edit-button')
+    world.wait_for_ajax_complete()
+
+
+@world.absorb
+def select_editor_tab(tab_name):
+    editor_tabs = world.browser.find_by_css('.editor-tabs a')
+    expected_tab_text = tab_name.strip().upper()
+    matching_tabs = [tab for tab in editor_tabs if tab.text.upper() == expected_tab_text]
+    assert len(matching_tabs) == 1
+    tab = matching_tabs[0]
+    tab.click()
+    world.wait_for_ajax_complete()
 
 
 def enter_xml_in_advanced_problem(step, text):
@@ -123,7 +146,7 @@ def enter_xml_in_advanced_problem(step, text):
     """
     world.edit_component()
     type_in_codemirror(0, text)
-    world.save_component(step)
+    world.save_component()
 
 
 @world.absorb
@@ -173,14 +196,14 @@ def verify_all_setting_entries(expected_entries):
 
 
 @world.absorb
-def save_component(step):
-    world.css_click("a.save-button")
+def save_component():
+    world.css_click("a.action-save")
     world.wait_for_ajax_complete()
 
 
 @world.absorb
 def save_component_and_reopen(step):
-    save_component(step)
+    save_component()
     # We have a known issue that modifications are still shown within the edit window after cancel (though)
     # they are not persisted. Refresh the browser to make sure the changes WERE persisted after Save.
     reload_the_page(step)
@@ -189,7 +212,7 @@ def save_component_and_reopen(step):
 
 @world.absorb
 def cancel_component(step):
-    world.css_click("a.cancel-button")
+    world.css_click("a.action-cancel")
     # We have a known issue that modifications are still shown within the edit window after cancel (though)
     # they are not persisted. Refresh the browser to make sure the changes were not persisted.
     reload_the_page(step)

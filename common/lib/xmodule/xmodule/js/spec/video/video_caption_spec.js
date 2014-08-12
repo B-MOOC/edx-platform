@@ -123,28 +123,16 @@
 
                 it('bind the hide caption button', function () {
                     state = jasmine.initializePlayer();
-                    expect($('.hide-subtitles')).toHandleWith(
-                        'click', state.videoCaption.toggle
-                    );
+                    expect($('.hide-subtitles')).toHandle('click');
                 });
 
                 it('bind the mouse movement', function () {
                     state = jasmine.initializePlayer();
-                    expect($('.subtitles')).toHandleWith(
-                        'mouseover', state.videoCaption.onMouseEnter
-                    );
-                    expect($('.subtitles')).toHandleWith(
-                        'mouseout', state.videoCaption.onMouseLeave
-                    );
-                    expect($('.subtitles')).toHandleWith(
-                        'mousemove', state.videoCaption.onMovement
-                    );
-                    expect($('.subtitles')).toHandleWith(
-                        'mousewheel', state.videoCaption.onMovement
-                    );
-                    expect($('.subtitles')).toHandleWith(
-                        'DOMMouseScroll', state.videoCaption.onMovement
-                    );
+                    expect($('.subtitles')).toHandle('mouseover');
+                    expect($('.subtitles')).toHandle('mouseout');
+                    expect($('.subtitles')).toHandle('mousemove');
+                    expect($('.subtitles')).toHandle('mousewheel');
+                    expect($('.subtitles')).toHandle('DOMMouseScroll');
                  });
 
                  it('bind the scroll', function () {
@@ -192,7 +180,7 @@
                         expect(state.lang).toBe('de');
                         expect(state.storage.setItem)
                             .toHaveBeenCalledWith('language', 'de');
-                        expect($('.langs-list li.active').length).toBe(1);
+                        expect($('.langs-list li.is-active').length).toBe(1);
                     });
 
                     it('when clicking on link with current language', function () {
@@ -210,15 +198,15 @@
                         expect(state.lang).toBe('en');
                         expect(state.storage.setItem)
                             .not.toHaveBeenCalledWith('language', 'en');
-                        expect($('.langs-list li.active').length).toBe(1);
+                        expect($('.langs-list li.is-active').length).toBe(1);
                     });
 
                     it('open the language toggle on hover', function () {
                         state = jasmine.initializePlayer();
                         $('.lang').mouseenter();
-                        expect($('.lang')).toHaveClass('open');
+                        expect($('.lang')).toHaveClass('is-opened');
                         $('.lang').mouseleave();
-                        expect($('.lang')).not.toHaveClass('open');
+                        expect($('.lang')).not.toHaveClass('is-opened');
                     });
                 });
 
@@ -248,18 +236,18 @@
 
                 it('render the caption', function () {
                     runs(function () {
-                        var captionsData;
+                        var captionsData = jasmine.stubbedCaption,
+                        items = $('.subtitles li[data-index]');
 
-                        captionsData = jasmine.stubbedCaption;
-                        $('.subtitles li[data-index]').each(
-                            function (index, link) {
+                        _.each(captionsData.text, function (text, index) {
+                            var item = items.eq(index);
 
-                            expect($(link)).toHaveData('index', index);
-                            expect($(link)).toHaveData(
+                            expect(item).toHaveData('index', index);
+                            expect(item).toHaveData(
                                 'start', captionsData.start[index]
                             );
-                            expect($(link)).toHaveAttr('tabindex', 0);
-                            expect($(link)).toHaveText(captionsData.text[index]);
+                            expect(item).toHaveAttr('tabindex', 0);
+                            expect(item).toHaveText(text);
                         });
                     });
                 });
@@ -336,11 +324,37 @@
                     $.fn.scrollTo.reset();
                 });
 
-                it('show explaination message', function () {
+                it('show explanation message', function () {
                     expect($('.subtitles li')).toHaveHtml(
                         'Caption will be displayed when you start playing ' +
                         'the video.'
                     );
+                });
+
+                it('show captions on play', function () {
+                    runs(function () {
+                        state.el.trigger('play');
+                    });
+
+                    waitsFor(function () {
+                        return state.videoCaption.rendered;
+                    }, 'Captions are not rendered', WAIT_TIMEOUT);
+
+                    runs(function () {
+                        var captionsData = jasmine.stubbedCaption,
+                        items = $('.subtitles li[data-index]');
+
+                        _.each(captionsData.text, function (text, index) {
+                            var item = items.eq(index);
+
+                            expect(item).toHaveData('index', index);
+                            expect(item).toHaveData(
+                                'start', captionsData.start[index]
+                            );
+                            expect(item).toHaveAttr('tabindex', 0);
+                            expect(item).toHaveText(text);
+                        });
+                    });
                 });
 
                 it('does not set rendered to true', function () {
@@ -859,7 +873,7 @@
                 runs(function () {
                     videoControl = state.videoControl;
                     $('.subtitles li[data-index=1]').addClass('current');
-                    state.videoCaption.resize();
+                    state.videoCaption.onResize();
                 });
             });
 

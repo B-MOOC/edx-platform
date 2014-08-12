@@ -1,11 +1,11 @@
-@shard_3
+@shard_3 @requires_stub_youtube
 Feature: CMS Video Component
   As a course author, I want to be able to view my created videos in Studio
 
   # 1
   Scenario: YouTube stub server proxies YouTube API correctly
     Given youtube stub server proxies YouTube API
-    Given I have created a Video component
+    And I have created a Video component
     Then I can see video button "play"
     And I click video button "play"
     Then I can see video button "pause"
@@ -13,8 +13,8 @@ Feature: CMS Video Component
   # 2
   Scenario: YouTube stub server can block YouTube API
     Given youtube stub server blocks YouTube API
-    Given I have created a Video component
-    Given We explicitly wait for YouTube API to not load
+    And I have created a Video component
+    And I wait for "3" seconds
     Then I do not see video button "play"
 
   # 3
@@ -72,8 +72,8 @@ Feature: CMS Video Component
     And Make sure captions are closed
     And I edit the component
     And I open tab "Advanced"
-    And I set value "00:00:12" to the field "Start Time"
-    And I set value "00:00:24" to the field "End Time"
+    And I set value "00:00:12" to the field "Video Start Time"
+    And I set value "00:00:24" to the field "Video Stop Time"
     And I save changes
     And I click video button "play"
     Then I see a range on slider
@@ -85,8 +85,8 @@ Feature: CMS Video Component
   #  And Make sure captions are closed
   #  And I edit the component
   #  And I open tab "Advanced"
-  #  And I set value "00:00:12" to the field "Start Time"
-  #  And I set value "00:00:24" to the field "End Time"
+  #  And I set value "00:00:12" to the field "Video Start Time"
+  #  And I set value "00:00:24" to the field "Video Stop Time"
   #  And I save changes
   #  And I click video button "play"
   #  Then I see a range on slider
@@ -103,8 +103,8 @@ Feature: CMS Video Component
 #    And Make sure captions are closed
 #    And I edit the component
 #    And I open tab "Advanced"
-#    And I set value "00:00:12" to the field "Start Time"
-#    And I set value "00:00:24" to the field "End Time"
+#    And I set value "00:00:12" to the field "Video Start Time"
+#    And I set value "00:00:24" to the field "Video Stop Time"
 #    And I save changes
 #    And I click video button "play"
 #    Then I see a range on slider
@@ -121,8 +121,8 @@ Feature: CMS Video Component
 #    And Make sure captions are closed
 #    And I edit the component
 #    And I open tab "Advanced"
-#    And I set value "00:00:12" to the field "Start Time"
-#    And I set value "00:00:24" to the field "End Time"
+#    And I set value "00:00:12" to the field "Video Start Time"
+#    And I set value "00:00:24" to the field "Video Stop Time"
 #    And I save changes
 #    And I click video button "play"
 #    Then I see a range on slider

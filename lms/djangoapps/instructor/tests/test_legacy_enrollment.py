@@ -3,6 +3,7 @@ Unit tests for enrollment methods in views.py
 
 """
 
+import ddt
 from mock import patch
 
 from django.test.utils import override_settings
@@ -20,6 +21,7 @@ from django.core import mail
 USER_COUNT = 4
 
 
+@ddt.ddt
 @override_settings(MODULESTORE=TEST_DATA_MIXED_MODULESTORE)
 class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase):
     """
@@ -52,7 +54,7 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         course = self.course
 
         # Run the Un-enroll students command
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
         response = self.client.post(
             url,
             {
@@ -84,7 +86,7 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         course = self.course
 
         # Run the Enroll students command
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
         response = self.client.post(url, {'action': 'Enroll multiple students', 'multiple_students': 'student1_1@test.com, student1_2@test.com', 'auto_enroll': 'on'})
 
         # Check the page output
@@ -129,7 +131,7 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
 
         course = self.course
 
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
         response = self.client.post(url, {'action': 'Enroll multiple students', 'multiple_students': 'student0@test.com', 'auto_enroll': 'on'})
         self.assertContains(response, '<td>student0@test.com</td>')
         self.assertContains(response, '<td>already enrolled</td>')
@@ -142,7 +144,7 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         course = self.course
 
         # Run the Enroll students command
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
         response = self.client.post(url, {'action': 'Enroll multiple students', 'multiple_students': 'student2_1@test.com, student2_2@test.com'})
 
         # Check the page output
@@ -189,7 +191,8 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         cleaned_string, cleaned_string_lc = get_and_clean_student_list(string)
         self.assertEqual(cleaned_string, ['abc@test.com', 'def@test.com', 'ghi@test.com', 'jkl@test.com', 'mno@test.com'])
 
-    def test_enrollment_email_on(self):
+    @ddt.data('http', 'https')
+    def test_enrollment_email_on(self, protocol):
         """
         Do email on enroll test
         """
@@ -199,8 +202,10 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         # Create activated, but not enrolled, user
         UserFactory.create(username="student3_0", email="student3_0@test.com", first_name='Autoenrolled')
 
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
-        response = self.client.post(url, {'action': 'Enroll multiple students', 'multiple_students': 'student3_0@test.com, student3_1@test.com, student3_2@test.com', 'auto_enroll': 'on', 'email_students': 'on'})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
+        params = {'action': 'Enroll multiple students', 'multiple_students': 'student3_0@test.com, student3_1@test.com, student3_2@test.com', 'auto_enroll': 'on', 'email_students': 'on'}
+        environ = {'wsgi.url_scheme': protocol}
+        response = self.client.post(url, params, **environ)
 
         # Check the page output
         self.assertContains(response, '<td>student3_0@test.com</td>')
@@ -221,8 +226,8 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
             "at edx.org by a member of the course staff. "
             "The course should now appear on your edx.org dashboard.\n\n"
             "To start accessing course materials, please visit "
-            "https://edx.org/courses/MITx/999/Robot_Super_Course\n\n"
-            "----\nThis email was automatically sent from edx.org to Autoenrolled Test"
+            "{}://edx.org/courses/MITx/999/Robot_Super_Course/\n\n"
+            "----\nThis email was automatically sent from edx.org to Autoenrolled Test".format(protocol)
         )
 
         self.assertEqual(
@@ -235,12 +240,12 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
             "Robot Super Course at edx.org by a member of the "
             "course staff.\n\n"
             "To finish your registration, please visit "
-            "https://edx.org/register and fill out the registration form "
+            "{}://edx.org/register and fill out the registration form "
             "making sure to use student3_1@test.com in the E-mail field.\n"
             "Once you have registered and activated your account, you will "
             "see Robot Super Course listed on your dashboard.\n\n"
             "----\nThis email was automatically sent from edx.org to "
-            "student3_1@test.com"
+            "student3_1@test.com".format(protocol)
         )
 
     def test_unenrollment_email_on(self):
@@ -254,7 +259,7 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         cea = CourseEnrollmentAllowed(email='student4_0@test.com', course_id=course.id)
         cea.save()
 
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
         response = self.client.post(url, {'action': 'Unenroll multiple students', 'multiple_students': 'student4_0@test.com, student2@test.com, student3@test.com', 'email_students': 'on'})
 
         # Check the page output
@@ -291,8 +296,9 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         send_mail_ret = send_mail_to_student('student0@test.com', d)
         self.assertFalse(send_mail_ret)
 
+    @ddt.data('http', 'https')
     @patch('instructor.views.legacy.uses_shib')
-    def test_enrollment_email_on_shib_on(self, mock_uses_shib):
+    def test_enrollment_email_on_shib_on(self, protocol, mock_uses_shib):
         # Do email on enroll, shibboleth on test
 
         course = self.course
@@ -301,8 +307,10 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
         # Create activated, but not enrolled, user
         UserFactory.create(username="student5_0", email="student5_0@test.com", first_name="ShibTest", last_name="Enrolled")
 
-        url = reverse('instructor_dashboard', kwargs={'course_id': course.id})
-        response = self.client.post(url, {'action': 'Enroll multiple students', 'multiple_students': 'student5_0@test.com, student5_1@test.com', 'auto_enroll': 'on', 'email_students': 'on'})
+        url = reverse('instructor_dashboard_legacy', kwargs={'course_id': course.id.to_deprecated_string()})
+        params = {'action': 'Enroll multiple students', 'multiple_students': 'student5_0@test.com, student5_1@test.com', 'auto_enroll': 'on', 'email_students': 'on'}
+        environ = {'wsgi.url_scheme': protocol}
+        response = self.client.post(url, params, **environ)
 
         # Check the page output
         self.assertContains(response, '<td>student5_0@test.com</td>')
@@ -322,8 +330,8 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
             "at edx.org by a member of the course staff. "
             "The course should now appear on your edx.org dashboard.\n\n"
             "To start accessing course materials, please visit "
-            "https://edx.org/courses/MITx/999/Robot_Super_Course\n\n"
-            "----\nThis email was automatically sent from edx.org to ShibTest Enrolled"
+            "{}://edx.org/courses/MITx/999/Robot_Super_Course/\n\n"
+            "----\nThis email was automatically sent from edx.org to ShibTest Enrolled".format(protocol)
         )
 
         self.assertEqual(
@@ -335,7 +343,7 @@ class TestInstructorEnrollsStudent(ModuleStoreTestCase, LoginEnrollmentTestCase)
             "Dear student,\n\nYou have been invited to join "
             "Robot Super Course at edx.org by a member of the "
             "course staff.\n\n"
-            "To access the course visit https://edx.org/courses/MITx/999/Robot_Super_Course and login.\n\n"
+            "To access the course visit {}://edx.org/courses/MITx/999/Robot_Super_Course/ and login.\n\n"
             "----\nThis email was automatically sent from edx.org to "
-            "student5_1@test.com"
+            "student5_1@test.com".format(protocol)
         )

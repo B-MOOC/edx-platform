@@ -143,7 +143,7 @@ def combined_notifications(course, user):
     #Initialize controller query service using our mock system
     controller_qs = ControllerQueryService(settings.OPEN_ENDED_GRADING_INTERFACE, system)
     student_id = unique_id_for_user(user)
-    user_is_staff = has_access(user, course, 'staff')
+    user_is_staff = has_access(user, 'staff', course)
     course_id = course.id
     notification_type = "combined"
 
@@ -158,9 +158,8 @@ def combined_notifications(course, user):
 
     try:
         #Get the notifications from the grading controller
-        controller_response = controller_qs.check_combined_notifications(course.id, student_id, user_is_staff,
+        notifications = controller_qs.check_combined_notifications(course.id, student_id, user_is_staff,
                                                                          last_time_viewed)
-        notifications = json.loads(controller_response)
         if notifications.get('success'):
             if (notifications.get('staff_needs_to_grade') or
                 notifications.get('student_needs_to_peer_grade')):

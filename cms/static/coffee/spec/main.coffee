@@ -18,6 +18,7 @@ requirejs.config({
         "jquery.iframe-transport": "xmodule_js/common_static/js/vendor/jQuery-File-Upload/js/jquery.iframe-transport",
         "jquery.inputnumber": "xmodule_js/common_static/js/vendor/html5-input-polyfills/number-polyfill",
         "jquery.immediateDescendents": "xmodule_js/common_static/coffee/src/jquery.immediateDescendents",
+        "jquery.simulate": "xmodule_js/common_static/js/vendor/jquery.simulate",
         "datepair": "xmodule_js/common_static/js/vendor/timepicker/datepair",
         "date": "xmodule_js/common_static/js/vendor/date",
         "underscore": "xmodule_js/common_static/js/vendor/underscore-min",
@@ -25,8 +26,8 @@ requirejs.config({
         "backbone": "xmodule_js/common_static/js/vendor/backbone-min",
         "backbone.associations": "xmodule_js/common_static/js/vendor/backbone-associations-min",
         "backbone.paginator": "xmodule_js/common_static/js/vendor/backbone.paginator.min",
-        "tinymce": "xmodule_js/common_static/js/vendor/tiny_mce/tiny_mce",
-        "jquery.tinymce": "xmodule_js/common_static/js/vendor/tiny_mce/jquery.tinymce",
+        "tinymce": "xmodule_js/common_static/js/vendor/tinymce/js/tinymce/tinymce.full.min",
+        "jquery.tinymce": "xmodule_js/common_static/js/vendor/tinymce/js/tinymce/jquery.tinymce",
         "xmodule": "xmodule_js/src/xmodule",
         "xblock/cms.runtime.v1": "coffee/src/xblock/cms.runtime.v1",
         "xblock": "xmodule_js/common_static/coffee/src/xblock",
@@ -99,6 +100,10 @@ requirejs.config({
         "jquery.inputnumber": {
             deps: ["jquery"],
             exports: "jQuery.fn.inputNumber"
+        },
+        "jquery.simulate": {
+            deps: ["jquery"],
+            exports: "jQuery.fn.simulate"
         },
         "jquery.tinymce": {
             deps: ["jquery", "tinymce"],
@@ -207,18 +212,34 @@ define([
     "js/spec/video/transcripts/videolist_spec", "js/spec/video/transcripts/message_manager_spec",
     "js/spec/video/transcripts/file_uploader_spec",
 
-    "js/spec/models/explicit_url_spec"
+    "js/spec/models/component_template_spec",
+    "js/spec/models/explicit_url_spec",
+    "js/spec/models/group_configuration_spec",
 
+    "js/spec/utils/drag_and_drop_spec",
     "js/spec/utils/handle_iframe_binding_spec",
     "js/spec/utils/module_spec",
 
     "js/spec/views/baseview_spec",
     "js/spec/views/paging_spec",
+    "js/spec/views/assets_spec",
 
-    "js/spec/views/unit_spec"
-    "js/spec/views/xblock_spec"
+    "js/spec/views/container_spec",
+    "js/spec/views/unit_spec",
+    "js/spec/views/xblock_spec",
+    "js/spec/views/xblock_editor_spec",
 
-    # these tests are run separate in the cms-squire suite, due to process
+    "js/spec/views/pages/container_spec",
+    "js/spec/views/pages/group_configurations_spec",
+
+    "js/spec/views/modals/base_modal_spec",
+    "js/spec/views/modals/edit_xblock_spec",
+
+    "js/spec/views/group_configuration_spec",
+
+    "js/spec/xblock/cms.runtime.v1_spec",
+
+    # these tests are run separately in the cms-squire suite, due to process
     # isolation issues with Squire.js
     # "coffee/spec/views/assets_spec"
     ])

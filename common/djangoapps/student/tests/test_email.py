@@ -5,13 +5,12 @@ import unittest
 from student.tests.factories import UserFactory, RegistrationFactory, PendingEmailChangeFactory
 from student.views import reactivation_email_for_user, change_email_request, confirm_email_change
 from student.models import UserProfile, PendingEmailChange
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, AnonymousUser
 from django.test import TestCase, TransactionTestCase
 from django.test.client import RequestFactory
 from mock import Mock, patch
 from django.http import Http404, HttpResponse
 from django.conf import settings
-from nose.plugins.skip import SkipTest
 from edxmako.shortcuts import render_to_string
 from util.request import safe_get_host
 from textwrap import dedent
@@ -157,10 +156,11 @@ class EmailChangeRequestTests(TestCase):
         self.assertFalse(self.user.email_user.called)
 
     def test_unauthenticated(self):
-        self.user.is_authenticated = False
+        self.request.user = AnonymousUser()
+        self.request.user.email_user = Mock()
         with self.assertRaises(Http404):
             change_email_request(self.request)
-        self.assertFalse(self.user.email_user.called)
+        self.assertFalse(self.request.user.email_user.called)
 
     def test_invalid_password(self):
         self.request.POST['password'] = 'wrong'

@@ -12,34 +12,28 @@ from django.core.urlresolvers import reverse
 from django.test.utils import override_settings
 from django.conf import settings
 
-from xmodule.video_module import transcripts_utils
 from contentstore.tests.utils import CourseTestCase
 from cache_toolbox.core import del_cached_content
 from xmodule.modulestore.django import modulestore
-from xmodule.contentstore.django import contentstore, _CONTENTSTORE
+from xmodule.contentstore.django import contentstore
 from xmodule.contentstore.content import StaticContent
 from xmodule.exceptions import NotFoundError
-from xmodule.modulestore.django import loc_mapper
-from xmodule.modulestore.locator import BlockUsageLocator
+from opaque_keys.edx.keys import UsageKey
+from xmodule.video_module import transcripts_utils
 
-from contentstore.tests.modulestore_config import TEST_MODULESTORE
 TEST_DATA_CONTENTSTORE = copy.deepcopy(settings.CONTENTSTORE)
 TEST_DATA_CONTENTSTORE['DOC_STORE_CONFIG']['db'] = 'test_xcontent_%s' % uuid4().hex
 
 
-@override_settings(CONTENTSTORE=TEST_DATA_CONTENTSTORE, MODULESTORE=TEST_MODULESTORE)
+@override_settings(CONTENTSTORE=TEST_DATA_CONTENTSTORE)
 class Basetranscripts(CourseTestCase):
     """Base test class for transcripts tests."""
-
-    org = 'MITx'
-    number = '999'
 
     def clear_subs_content(self):
         """Remove, if transcripts content exists."""
         for youtube_id in self.get_youtube_ids().values():
             filename = 'subs_{0}.srt.sjson'.format(youtube_id)
-            content_location = StaticContent.compute_location(
-                self.org, self.number, filename)
+            content_location = StaticContent.compute_location(self.course.id, filename)
             try:
                 content = contentstore().find(content_location)
                 contentstore().delete(content.get_id())
@@ -49,38 +43,35 @@ class Basetranscripts(CourseTestCase):
     def setUp(self):
         """Create initial data."""
         super(Basetranscripts, self).setUp()
-        self.unicode_locator = unicode(loc_mapper().translate_location(
-            self.course.location.course_id, self.course.location, False, True
-        ))
 
         # Add video module
         data = {
-            'parent_locator': self.unicode_locator,
+            'parent_locator': unicode(self.course.location),
             'category': 'video',
             'type': 'video'
         }
-        resp = self.client.ajax_post('/xblock', data)
-        self.item_locator, self.item_location = self._get_locator(resp)
+        resp = self.client.ajax_post('/xblock/', data)
         self.assertEqual(resp.status_code, 200)
 
-        self.item = modulestore().get_item(self.item_location)
+        self.video_usage_key = self._get_usage_key(resp)
+        self.item = modulestore().get_item(self.video_usage_key)
         # hI10vDNYz4M - valid Youtube ID with transcripts.
         # JMD_ifUUfsU, AKqURZnYqpk, DYpADpL7jAY - valid Youtube IDs without transcripts.
         self.item.data = '<video youtube="0.75:JMD_ifUUfsU,1.0:hI10vDNYz4M,1.25:AKqURZnYqpk,1.50:DYpADpL7jAY" />'
         modulestore().update_item(self.item, self.user.id)
 
-        self.item = modulestore().get_item(self.item_location)
+        self.item = modulestore().get_item(self.video_usage_key)
         # Remove all transcripts for current module.
         self.clear_subs_content()
 
-    def _get_locator(self, resp):
-        """ Returns the locator and old-style location (as a string) from the response returned by a create operation. """
-        locator = json.loads(resp.content).get('locator')
-        return locator, loc_mapper().translate_locator_to_location(BlockUsageLocator(locator)).url()
+    def _get_usage_key(self, resp):
+        """ Returns the usage key from the response returned by a create operation. """
+        usage_key_string = json.loads(resp.content).get('locator')
+        return UsageKey.from_string(usage_key_string)
 
     def get_youtube_ids(self):
         """Return youtube speeds and ids."""
-        item = modulestore().get_item(self.item_location)
+        item = modulestore().get_item(self.video_usage_key)
 
         return {
             0.75: item.youtube_id_0_75,
@@ -88,10 +79,6 @@ class Basetranscripts(CourseTestCase):
             1.25: item.youtube_id_1_25,
             1.5: item.youtube_id_1_5
         }
-
-    def tearDown(self):
-        MongoClient().drop_database(TEST_DATA_CONTENTSTORE['DOC_STORE_CONFIG']['db'])
-        _CONTENTSTORE.clear()
 
 
 class TestUploadtranscripts(Basetranscripts):
@@ -142,7 +129,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(self.good_srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': self.item_locator,
+            'locator': self.video_usage_key,
             'transcript-file': self.good_srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -153,11 +140,11 @@ class TestUploadtranscripts(Basetranscripts):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(json.loads(resp.content).get('status'), 'Success')
 
-        item = modulestore().get_item(self.item_location)
+        item = modulestore().get_item(self.video_usage_key)
         self.assertEqual(item.sub, filename)
 
         content_location = StaticContent.compute_location(
-            self.org, self.number, 'subs_{0}.srt.sjson'.format(filename))
+            self.course.id, 'subs_{0}.srt.sjson'.format(filename))
         self.assertTrue(contentstore().find(content_location))
 
     def test_fail_data_without_id(self):
@@ -168,7 +155,7 @@ class TestUploadtranscripts(Basetranscripts):
 
     def test_fail_data_without_file(self):
         link = reverse('upload_transcripts')
-        resp = self.client.post(link, {'locator': self.item_locator})
+        resp = self.client.post(link, {'locator': self.video_usage_key})
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(json.loads(resp.content).get('status'), 'POST data without "file" form data.')
 
@@ -192,7 +179,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(self.good_srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': '{0}_{1}'.format(self.item_locator, 'BAD_LOCATOR'),
+            'locator': '{0}_{1}'.format(self.video_usage_key, 'BAD_LOCATOR'),
             'transcript-file': self.good_srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -206,13 +193,13 @@ class TestUploadtranscripts(Basetranscripts):
     def test_fail_for_non_video_module(self):
         # non_video module: setup
         data = {
-            'parent_locator': self.unicode_locator,
+            'parent_locator': unicode(self.course.location),
             'category': 'non_video',
             'type': 'non_video'
         }
-        resp = self.client.ajax_post('/xblock', data)
-        item_locator, item_location = self._get_locator(resp)
-        item = modulestore().get_item(item_location)
+        resp = self.client.ajax_post('/xblock/', data)
+        usage_key = self._get_usage_key(resp)
+        item = modulestore().get_item(usage_key)
         item.data = '<non_video youtube="0.75:JMD_ifUUfsU,1.0:hI10vDNYz4M" />'
         modulestore().update_item(item, self.user.id)
 
@@ -221,7 +208,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(self.good_srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': item_locator,
+            'locator': unicode(usage_key),
             'transcript-file': self.good_srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -239,7 +226,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(self.good_srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': self.item_locator,
+            'locator': unicode(self.video_usage_key),
             'transcript-file': self.good_srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -256,7 +243,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(self.bad_data_srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': self.item_locator,
+            'locator': unicode(self.video_usage_key),
             'transcript-file': self.bad_data_srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -271,7 +258,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(self.bad_name_srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': self.item_locator,
+            'locator': unicode(self.video_usage_key),
             'transcript-file': self.bad_name_srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -298,7 +285,7 @@ class TestUploadtranscripts(Basetranscripts):
         link = reverse('upload_transcripts')
         filename = os.path.splitext(os.path.basename(srt_file.name))[0]
         resp = self.client.post(link, {
-            'locator': self.item_locator,
+            'locator': self.video_usage_key,
             'transcript-file': srt_file,
             'video_list': json.dumps([{
                 'type': 'html5',
@@ -326,8 +313,7 @@ class TestDownloadtranscripts(Basetranscripts):
         mime_type = 'application/json'
         filename = 'subs_{0}.srt.sjson'.format(subs_id)
 
-        content_location = StaticContent.compute_location(
-            self.org, self.number, filename)
+        content_location = StaticContent.compute_location(self.course.id, filename)
         content = StaticContent(content_location, filename, mime_type, filedata)
         contentstore().save(content)
         del_cached_content(content_location)
@@ -349,7 +335,7 @@ class TestDownloadtranscripts(Basetranscripts):
         self.save_subs_to_store(subs, 'JMD_ifUUfsU')
 
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': self.item_locator, 'subs_id': "JMD_ifUUfsU"})
+        resp = self.client.get(link, {'locator': self.video_usage_key, 'subs_id': "JMD_ifUUfsU"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.content, """0\n00:00:00,100 --> 00:00:00,200\nsubs #1\n\n1\n00:00:00,200 --> 00:00:00,240\nsubs #2\n\n2\n00:00:00,240 --> 00:00:00,380\nsubs #3\n\n""")
 
@@ -376,7 +362,7 @@ class TestDownloadtranscripts(Basetranscripts):
         self.save_subs_to_store(subs, subs_id)
 
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': self.item_locator, 'subs_id': subs_id})
+        resp = self.client.get(link, {'locator': self.video_usage_key, 'subs_id': subs_id})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp.content,
@@ -401,20 +387,20 @@ class TestDownloadtranscripts(Basetranscripts):
 
         # Test for raising `ItemNotFoundError` exception.
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': '{0}_{1}'.format(self.item_locator, 'BAD_LOCATOR')})
+        resp = self.client.get(link, {'locator': '{0}_{1}'.format(self.video_usage_key, 'BAD_LOCATOR')})
         self.assertEqual(resp.status_code, 404)
 
     def test_fail_for_non_video_module(self):
         # Video module: setup
         data = {
-            'parent_locator': self.unicode_locator,
+            'parent_locator': unicode(self.course.location),
             'category': 'videoalpha',
             'type': 'videoalpha'
         }
-        resp = self.client.ajax_post('/xblock', data)
-        item_locator, item_location = self._get_locator(resp)
+        resp = self.client.ajax_post('/xblock/', data)
+        usage_key = self._get_usage_key(resp)
         subs_id = str(uuid4())
-        item = modulestore().get_item(item_location)
+        item = modulestore().get_item(usage_key)
         item.data = textwrap.dedent("""
             <videoalpha youtube="" sub="{}">
                 <source src="http://www.quirksmode.org/html5/videos/big_buck_bunny.mp4"/>
@@ -436,7 +422,7 @@ class TestDownloadtranscripts(Basetranscripts):
         self.save_subs_to_store(subs, subs_id)
 
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': item_locator})
+        resp = self.client.get(link, {'locator': unicode(usage_key)})
         self.assertEqual(resp.status_code, 404)
 
     def test_fail_nonyoutube_subs_dont_exist(self):
@@ -450,7 +436,7 @@ class TestDownloadtranscripts(Basetranscripts):
         modulestore().update_item(self.item, self.user.id)
 
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': self.item_locator})
+        resp = self.client.get(link, {'locator': self.video_usage_key})
         self.assertEqual(resp.status_code, 404)
 
     def test_empty_youtube_attr_and_sub_attr(self):
@@ -464,7 +450,7 @@ class TestDownloadtranscripts(Basetranscripts):
         modulestore().update_item(self.item, self.user.id)
 
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': self.item_locator})
+        resp = self.client.get(link, {'locator': self.video_usage_key})
 
         self.assertEqual(resp.status_code, 404)
 
@@ -489,7 +475,7 @@ class TestDownloadtranscripts(Basetranscripts):
         self.save_subs_to_store(subs, 'JMD_ifUUfsU')
 
         link = reverse('download_transcripts')
-        resp = self.client.get(link, {'locator': self.item_locator})
+        resp = self.client.get(link, {'locator': self.video_usage_key})
 
         self.assertEqual(resp.status_code, 404)
 
@@ -503,8 +489,7 @@ class TestChecktranscripts(Basetranscripts):
         mime_type = 'application/json'
         filename = 'subs_{0}.srt.sjson'.format(subs_id)
 
-        content_location = StaticContent.compute_location(
-            self.org, self.number, filename)
+        content_location = StaticContent.compute_location(self.course.id, filename)
         content = StaticContent(content_location, filename, mime_type, filedata)
         contentstore().save(content)
         del_cached_content(content_location)
@@ -533,7 +518,7 @@ class TestChecktranscripts(Basetranscripts):
         self.save_subs_to_store(subs, subs_id)
 
         data = {
-            'locator':  self.item_locator,
+            'locator': unicode(self.video_usage_key),
             'videos': [{
                 'type': 'html5',
                 'video': subs_id,
@@ -577,7 +562,7 @@ class TestChecktranscripts(Basetranscripts):
         self.save_subs_to_store(subs, 'JMD_ifUUfsU')
         link = reverse('check_transcripts')
         data = {
-            'locator': self.item_locator,
+            'locator': unicode(self.video_usage_key),
             'videos': [{
                 'type': 'youtube',
                 'video': 'JMD_ifUUfsU',
@@ -633,7 +618,7 @@ class TestChecktranscripts(Basetranscripts):
 
         # Test for raising `ItemNotFoundError` exception.
         data = {
-            'locator':  '{0}_{1}'.format(self.item_locator, 'BAD_LOCATOR'),
+            'locator': '{0}_{1}'.format(self.video_usage_key, 'BAD_LOCATOR'),
             'videos': [{
                 'type': '',
                 'video': '',
@@ -647,14 +632,14 @@ class TestChecktranscripts(Basetranscripts):
     def test_fail_for_non_video_module(self):
         # Not video module: setup
         data = {
-            'parent_locator': self.unicode_locator,
+            'parent_locator': unicode(self.course.location),
             'category': 'not_video',
             'type': 'not_video'
         }
-        resp = self.client.ajax_post('/xblock', data)
-        item_locator, item_location = self._get_locator(resp)
+        resp = self.client.ajax_post('/xblock/', data)
+        usage_key = self._get_usage_key(resp)
         subs_id = str(uuid4())
-        item = modulestore().get_item(item_location)
+        item = modulestore().get_item(usage_key)
         item.data = textwrap.dedent("""
             <not_video youtube="" sub="{}">
                 <source src="http://www.quirksmode.org/html5/videos/big_buck_bunny.mp4"/>
@@ -676,7 +661,7 @@ class TestChecktranscripts(Basetranscripts):
         self.save_subs_to_store(subs, subs_id)
 
         data = {
-            'locator':  item_locator,
+            'locator': unicode(usage_key),
             'videos': [{
                 'type': '',
                 'video': '',

@@ -19,8 +19,6 @@ from django.test.utils import override_settings
 from courseware import grades
 from courseware.models import StudentModule
 
-from xmodule.modulestore.django import modulestore, editable_modulestore
-
 #import factories and parent testcase modules
 from xmodule.modulestore.tests.factories import CourseFactory, ItemFactory
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
@@ -46,6 +44,7 @@ class TestSubmittingProblems(ModuleStoreTestCase, LoginEnrollmentTestCase):
 
     def setUp(self):
 
+        super(TestSubmittingProblems, self).setUp(create_user=False)
         # Create course
         self.course = CourseFactory.create(display_name=self.COURSE_NAME, number=self.COURSE_SLUG)
         assert self.course, "Couldn't load course %r" % self.COURSE_NAME
@@ -63,14 +62,14 @@ class TestSubmittingProblems(ModuleStoreTestCase, LoginEnrollmentTestCase):
         """
         Re-fetch the course from the database so that the object being dealt with has everything added to it.
         """
-        self.course = modulestore().get_instance(self.course.id, self.course.location)
+        self.course = self.store.get_course(self.course.id)
 
     def problem_location(self, problem_url_name):
         """
         Returns the url of the problem given the problem's name
         """
 
-        return "i4x://" + self.course.org + "/{}/problem/{}".format(self.COURSE_SLUG, problem_url_name)
+        return self.course.id.make_usage_key('problem', problem_url_name)
 
     def modx_url(self, problem_location, dispatch):
         """
@@ -84,8 +83,8 @@ class TestSubmittingProblems(ModuleStoreTestCase, LoginEnrollmentTestCase):
         return reverse(
             'xblock_handler',
             kwargs={
-                'course_id': self.course.id,
-                'usage_id': quote_slashes(problem_location),
+                'course_id': self.course.id.to_deprecated_string(),
+                'usage_id': quote_slashes(problem_location.to_deprecated_string()),
                 'handler': 'xmodule_handler',
                 'suffix': dispatch,
             }
@@ -229,8 +228,7 @@ class TestCourseGrader(TestSubmittingProblems):
         """
 
         self.course.grading_policy = grading_policy
-        store = editable_modulestore()
-        store.update_item(self.course, '**replace_user**')
+        self.update_course(self.course, self.student_user.id)
         self.refresh_course()
 
     def get_grade_summary(self):
@@ -247,7 +245,7 @@ class TestCourseGrader(TestSubmittingProblems):
         """
 
         fake_request = self.factory.get(
-            reverse('progress', kwargs={'course_id': self.course.id})
+            reverse('progress', kwargs={'course_id': self.course.id.to_deprecated_string()})
         )
 
         return grades.grade(self.student_user, fake_request, self.course)
@@ -265,7 +263,7 @@ class TestCourseGrader(TestSubmittingProblems):
         """
 
         fake_request = self.factory.get(
-            reverse('progress', kwargs={'course_id': self.course.id})
+            reverse('progress', kwargs={'course_id': self.course.id.to_deprecated_string()})
         )
 
         progress_summary = grades.progress_summary(
@@ -493,7 +491,7 @@ class TestCourseGrader(TestSubmittingProblems):
         # score read from StudentModule and our student gets an A instead.
         with patch('submissions.api.get_scores') as mock_get_scores:
             mock_get_scores.return_value = {
-                self.problem_location('p3'): (1, 1)
+                self.problem_location('p3').to_deprecated_string(): (1, 1)
             }
             self.check_grade_percent(1.0)
             self.assertEqual(self.get_grade_summary()['grade'], 'A')
@@ -509,12 +507,14 @@ class TestCourseGrader(TestSubmittingProblems):
 
         with patch('submissions.api.get_scores') as mock_get_scores:
             mock_get_scores.return_value = {
-                self.problem_location('p3'): (1, 1)
+                self.problem_location('p3').to_deprecated_string(): (1, 1)
             }
             self.get_grade_summary()
 
             # Verify that the submissions API was sent an anonymized student ID
-            mock_get_scores.assert_called_with(self.course.id, '99ac6730dc5f900d69fd735975243b31')
+            mock_get_scores.assert_called_with(
+                self.course.id.to_deprecated_string(), '99ac6730dc5f900d69fd735975243b31'
+            )
 
     def test_weighted_homework(self):
         """
@@ -631,7 +631,7 @@ class ProblemWithUploadedFilesTest(TestSubmittingProblems):
             self.addCleanup(fileobj.close)
 
         self.problem_setup("the_problem", filenames)
-        with patch('courseware.module_render.xqueue_interface.session') as mock_session:
+        with patch('courseware.module_render.XQUEUE_INTERFACE.session') as mock_session:
             resp = self.submit_question_answer("the_problem", {'2_1': fileobjs})
 
         self.assertEqual(resp.status_code, 200)
@@ -946,7 +946,7 @@ class TestAnswerDistributions(TestSubmittingProblems):
         user2 = UserFactory.create()
         problems = StudentModule.objects.filter(
             course_id=self.course.id,
-            student_id=self.student_user.id
+            student=self.student_user
         )
         for problem in problems:
             problem.student_id = user2.id
@@ -981,7 +981,7 @@ class TestAnswerDistributions(TestSubmittingProblems):
         # Now fetch the state entry for that problem.
         student_module = StudentModule.objects.get(
             course_id=self.course.id,
-            student_id=self.student_user.id
+            student=self.student_user
         )
         for val in ('Correct', True, False, 0, 0.0, 1, 1.0, None):
             state = json.loads(student_module.state)
@@ -1008,9 +1008,11 @@ class TestAnswerDistributions(TestSubmittingProblems):
         # to a non-existent problem.
         student_module = StudentModule.objects.get(
             course_id=self.course.id,
-            student_id=self.student_user.id
+            student=self.student_user
         )
-        student_module.module_state_key += "_fake"
+        student_module.module_state_key = student_module.module_state_key.replace(
+            name=student_module.module_state_key.name + "_fake"
+        )
         student_module.save()
 
         # It should be empty (ignored)
@@ -1027,7 +1029,7 @@ class TestAnswerDistributions(TestSubmittingProblems):
         # Now fetch the StudentModule entry for p1 so we can corrupt its state
         prb1 = StudentModule.objects.get(
             course_id=self.course.id,
-            student_id=self.student_user.id
+            student=self.student_user
         )
 
         # Submit p2
