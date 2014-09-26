@@ -13,6 +13,9 @@ def run():
     """
     Executed during django startup
     """
+    
+    from safe_lxml import defuse_xml_libs
+    defuse_xml_libs()
     autostartup()
 
     add_mimetypes()
