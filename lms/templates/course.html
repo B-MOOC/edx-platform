@@ -7,7 +7,17 @@ from courseware.courses import course_image_url, get_course_about_section
 <%page args="course" />
 <article id="${course.id.to_deprecated_string()}" class="course">
   %if course.is_newish:
-    <span class="status">${_("New")}</span>
+    <span class="status
+    %if course.id.to_deprecated_string() == "Talan/UT-Agile-003/individuelle":
+    	${_("individuelle")}
+    %endif
+    ">
+    %if course.id.to_deprecated_string() == "Talan/UT-Agile-003/individuelle":
+    	${_("Ouvert")}
+    %else: 	
+    	${_("Prochainement")}
+    %endif
+   	</span> 
   %endif
   <a href="${reverse('about_course', args=[course.id.to_deprecated_string()])}">
   <div class="inner-wrapper">
