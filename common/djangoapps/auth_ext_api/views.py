@@ -96,12 +96,6 @@ AUDIT_LOG = logging.getLogger("audit")
 
 
 def login(request, extra_context=None):
-    """
-    This view will display the non-modal login form
-    """
-    if request.user.is_authenticated():
-        return redirect(reverse('dashboard'))
-    
     context = {
         'course_id': request.GET.get('course_id'),
         'email': '',
