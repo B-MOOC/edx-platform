@@ -54,7 +54,7 @@
          // this file is by default set up to use Access Control - this means that it will use the headers set by the server to decide whether or not to allow the call to return
         var useAccessControl = true;
         // always trusted origins, can be exact strings or regular expressions
-        var alwaysTrustedOrigins = [(/livechat.talan.fr/)];
+        var alwaysTrustedOrigins = [(/livechat.talan.fr/), (/localhost/)];
 	   	
 	 	
 	   var remote = new easyXDM.Rpc({	local:"/auth-ext-api/login/"},
