@@ -1249,6 +1249,7 @@ main_vendor_js = base_vendor_js + [
     'js/vendor/swfobject/swfobject.js',
     'js/vendor/jquery.ba-bbq.min.js',
     'js/vendor/URI.min.js',
+    # 'js/easyXDM/easyXDM.debug.js',
 ]
 
 dashboard_js = (

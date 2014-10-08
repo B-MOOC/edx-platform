@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8"/>
+	<title>Login Universite Talan</title>
+	 <script type="text/javascript" src="/static/js/easyXDM/easyXDM.debug.js"></script>
+	 <script type="text/javascript">
+	 	/*var socket = new easyXDM.Socket({
+		    onMessage: function(message, origin){
+		        //alert("Received '" + message + "' from '" + origin + "'");
+		    socket.postMessage("Indeed it does!");
+		        
+		    }
+		});*/
+		
+	   var rpc = new easyXDM.Rpc({},
+	    {
+	        local: {
+	            request: function(data, successFn, errorFn){
+	                // here we expose a simple method with three arguments
+	                // that returns an object
+	                console.log(data.data.email);
+	                console.log(data.data.password);
+	                
+	                /*
+	                 *   $.ajax({
+							url: "webservice",
+							type: "POST",
+							data: "a=1&b=2&c=3",
+							success: function(d) {
+								console.log(d);
+							}
+						});
+	                 */
+	                
+	                var r = new XMLHttpRequest(); 
+					r.open("POST", "/auth-ext-api/login/post", true);
+					r.onreadystatechange = function () {
+						if (r.readyState != 4 || r.status != 200) return; 
+						console.log(r.responseText);
+					};
+					r.send("email=data.data.email&password=data.data.password");
+	                
+	                return r;
+	            }
+	        }
+	    });
+		
+	  //rpc.request();
+	 </script>
+</head>
+<body>
+</body>
+</html>

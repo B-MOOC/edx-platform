@@ -701,6 +701,12 @@ if settings.FEATURES.get("ENABLE_LTI_PROVIDER"):
         url(r'^lti_provider/', include('lti_provider.urls')),
     )
 
+# Login Ext-API.
+if settings.FEATURES.get('ENABLE_AUTH_EXT_API'):
+    urlpatterns += (
+        url(r'', include('auth_ext_api.urls')),
+    )
+
 urlpatterns = patterns(*urlpatterns)
 
 if settings.DEBUG:
