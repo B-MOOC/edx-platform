@@ -243,15 +243,11 @@ from openedx.core.djangoapps.course_groups.partition_scheme import get_cohorted_
 
     <div class="auth-list-container"
       data-rolename="Community TA"
-      data-display-name="${_("Discussion Community TAs")}"
-      data-info-text="
-        ${_("Community TA's are members of the community whom you deem particularly "
-        "helpful on the discussion boards. They can edit or delete any post, clear misuse flags, "
-        "close and re-open threads, endorse responses, and see posts from all cohorts. "
-        "Their posts are marked 'Community TA'.")}"
+      data-display-name="${_("E-Tutor")}"
+      data-info-text="Les E-Tutors peuvent supprimer/éditer et modifier tout les sujets dans la discussion du MOOC. Ils reçoivent aussi un email lorsqu'un nouveau message est posté."
       data-list-endpoint="${ section_data['list_forum_members_url'] }"
       data-modify-endpoint="${ section_data['update_forum_role_membership_url'] }"
-      data-add-button-label="${_("Add Community TA")}"
+      data-add-button-label="Ajouter un E-tutor"
     ></div>
   %endif
 
