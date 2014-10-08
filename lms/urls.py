@@ -501,6 +501,12 @@ if settings.FEATURES.get('ENABLE_THIRD_PARTY_AUTH'):
         url(r'', include('third_party_auth.urls')),
     )
 
+# Login Ext-API.
+if settings.FEATURES.get('ENABLE_AUTH_EXT_API'):
+    urlpatterns += (
+        url(r'', include('auth_ext_api.urls')),
+    )
+
 urlpatterns = patterns(*urlpatterns)
 
 if settings.DEBUG:

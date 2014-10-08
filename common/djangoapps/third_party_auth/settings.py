@@ -82,6 +82,7 @@ def _set_global_settings(django_settings):
     django_settings.INSTALLED_APPS += (
         'social.apps.django_app.default',
         'third_party_auth',
+        'auth_ext_api',
     )
 
     # Inject exception middleware to make redirects fire.
