@@ -3,6 +3,7 @@ Module for checking permissions with the comment_client backend
 """
 
 import logging
+import pprint
 from types import NoneType
 from django.core import cache
 from opaque_keys.edx.keys import CourseKey
@@ -12,6 +13,8 @@ CACHE_LIFESPAN = 60
 
 
 def cached_has_permission(user, permission, course_id=None):
+    pprint.pprint(globals())
+    pprint.pprint(locals())
     """
     Call has_permission if it's not cached. A change in a user's role or
     a role's permissions will only become effective after CACHE_LIFESPAN seconds.

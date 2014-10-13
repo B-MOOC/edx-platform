@@ -38,7 +38,7 @@ class @DiscussionUtil
 
   @isTA: (user_id) ->
     user_id ?= @user?.id
-    ta = _.union(@roleIds['Community TA'])
+    ta = _.union(@roleIds['E-tutor'])
     _.include(ta, parseInt(user_id))
 
   @bulkUpdateContentInfo: (infos) ->

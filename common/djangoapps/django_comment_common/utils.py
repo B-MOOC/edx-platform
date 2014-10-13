@@ -4,6 +4,8 @@ _STUDENT_ROLE_PERMISSIONS = ["vote", "update_thread", "follow_thread", "unfollow
                              "update_comment", "create_sub_comment", "unvote", "create_thread",
                              "follow_commentable", "unfollow_commentable", "create_comment", ]
 
+_ETUTORS_ROLE_PERMISSIONS = []
+
 _MODERATOR_ROLE_PERMISSIONS = ["edit_content", "delete_thread", "openclose_thread",
                                "endorse_comment", "delete_comment", "see_all_cohorts"]
 
@@ -30,10 +32,14 @@ def seed_permissions_roles(course_key):
     administrator_role = _save_forum_role(course_key, "Administrator")
     moderator_role = _save_forum_role(course_key, "Moderator")
     community_ta_role = _save_forum_role(course_key, "Community TA")
+    etutor_role = _save_forum_role(course_key, "E-tutor")
     student_role = _save_forum_role(course_key, "Student")
 
     for per in _STUDENT_ROLE_PERMISSIONS:
         student_role.add_permission(per)
+        
+    for per in _ETUTORS_ROLE_PERMISSIONS:
+        etutor_role.add_permission(per)
 
     for per in _MODERATOR_ROLE_PERMISSIONS:
         moderator_role.add_permission(per)
@@ -42,6 +48,7 @@ def seed_permissions_roles(course_key):
         administrator_role.add_permission(per)
 
     moderator_role.inherit_permissions(student_role)
+    etutor_role.inherit_permissions(student_role)
 
     # For now, Community TA == Moderator, except for the styling.
     community_ta_role.inherit_permissions(moderator_role)
@@ -58,6 +65,7 @@ def are_permissions_roles_seeded(course_id):
         administrator_role = Role.objects.get(name="Administrator", course_id=course_id)
         moderator_role = Role.objects.get(name="Moderator", course_id=course_id)
         student_role = Role.objects.get(name="Student", course_id=course_id)
+        etutor_role = Role.objects.get(name="E-tutor", course_id=course_id)
     except:
         return False
 
