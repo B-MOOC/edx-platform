@@ -45,7 +45,7 @@ if Backbone?
         @$el.prepend('<div class="staff-banner">' + gettext('staff') + '</div>')
       else if DiscussionUtil.isTA(@model.get("user_id"))
         @$el.addClass("community-ta")
-        @$el.prepend('<div class="community-ta-banner">' + gettext('Community TA') + '</div>')
+        @$el.prepend('<div class="community-ta-banner">E-tutor</div>')
 
     edit: (event) ->
         @trigger "response:edit", event
