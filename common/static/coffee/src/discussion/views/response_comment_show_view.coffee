@@ -56,7 +56,7 @@ if Backbone?
       if DiscussionUtil.isStaff(@model.get("user_id"))
         @$el.find("a.profile-link").after('<span class="staff-label">' + gettext('staff') + '</span>')
       else if DiscussionUtil.isTA(@model.get("user_id"))
-        @$el.find("a.profile-link").after('<span class="community-ta-label">' + gettext('Community TA') + '</span>')
+        @$el.find("a.profile-link").after('<span class="community-ta-label">E-tutor</span>')
 
     _delete: (event) =>
         @trigger "comment:_delete", event

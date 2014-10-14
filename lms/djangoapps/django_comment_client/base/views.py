@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core import exceptions
 from django.core.files.storage import get_storage_class
+from django.core.mail import send_mail
 from django.http import Http404
 from django.utils.translation import ugettext as _
 from django.views.decorators import csrf
@@ -27,6 +28,13 @@ from django_comment_client.utils import (
     JsonError,
     JsonResponse,
     safe_content
+)
+from django_comment_common.models import (
+    Role,
+    FORUM_ROLE_ADMINISTRATOR,
+    FORUM_ROLE_MODERATOR,
+    FORUM_ROLE_COMMUNITY_TA,
+    FORUM_ROLE_ETUTOR
 )
 from django_comment_client.permissions import check_permissions_by_view, cached_has_permission
 import lms.lib.comment_client as cc
@@ -134,6 +142,28 @@ def create_thread(request, course_id, commentable_id):
         user.follow(thread)
     data = thread.to_dict()
     add_courseware_context([data], course)
+    
+    try:
+        role = Role.objects.get(name="E-tutor", course_id=course_id)
+        etutors = role.users.all().order_by('username')     
+        user= request.user
+        """
+        Send Notify to the Etutors !
+
+        """
+        subject = "nouveau message sur le forum"
+        message = "Bonjour,\n\n Il y a un nouveau message sur Universite Talan.\n\n--------------------\n--------------------\n\n Auteur : "+ user.username +" \n Titre : "+ post["title"] + " \n Message : "+post["body"]
+        from_email = "edx@universite.talan.fr"
+        def extract_etutors_info(etutor):
+            if etutor.email != user.email:
+                send_mail("[UnivTalan] "+subject, message, from_email, [etutor.email])
+                   
+        map(extract_etutors_info, etutors)       
+    except Role.DoesNotExist:
+        etutors = [] 
+    
+    
+    
     if request.is_ajax():
         return ajax_content_response(request, course_id, data)
     else:
@@ -193,6 +223,27 @@ def _create_comment(request, course_key, thread_id=None, parent_id=None):
         body=post["body"]
     )
     comment.save()
+        
+    try:
+        role = Role.objects.get(name="E-tutor", course_id=course_key)
+        etutors = role.users.all().order_by('username')      
+        user= request.user
+        """
+        Send Notify to the Etutors !
+
+        """
+        subject = "nouveau commentaire sur le forum"
+        message = "Bonjour,\n\n Il y a un nouveau commentaire sur Universite Talan.\n\n--------------------\n--------------------\n\n Auteur : "+ user.username + " \n Message : "+post["body"]
+        from_email = "edx@universite.talan.fr"
+        def extract_etutors_info(etutor):
+            if etutor.email != user.email:
+                send_mail("[UnivTalan] "+subject, message, from_email, [etutor.email])
+                   
+        map(extract_etutors_info, etutors)       
+    except Role.DoesNotExist:
+        etutors = [] 
+    
+    
     if post.get('auto_subscribe', 'false').lower() == 'true':
         user = cc.User.from_django_user(request.user)
         user.follow(comment.thread)
