@@ -23,8 +23,14 @@ def run():
     """
     Executed during django startup
     """
+<<<<<<< HEAD
     django_utils_translation.patch()
 
+=======
+    from safe_lxml import defuse_xml_libs
+    defuse_xml_libs()
+    
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
     autostartup()
 
     add_mimetypes()

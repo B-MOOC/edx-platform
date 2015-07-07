@@ -49,6 +49,7 @@ from django_comment_common.models import (
     FORUM_ROLE_ADMINISTRATOR,
     FORUM_ROLE_MODERATOR,
     FORUM_ROLE_COMMUNITY_TA,
+    FORUM_ROLE_ETUTOR,
 )
 from edxmako.shortcuts import render_to_response, render_to_string
 from courseware.models import StudentModule
@@ -2206,7 +2207,11 @@ def list_forum_members(request, course_id):
         return HttpResponseBadRequest("Operation requires instructor access.")
 
     # filter out unsupported for roles
+<<<<<<< HEAD
     if rolename not in [FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_MODERATOR, FORUM_ROLE_COMMUNITY_TA]:
+=======
+    if not rolename in [FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_MODERATOR, FORUM_ROLE_COMMUNITY_TA, FORUM_ROLE_ETUTOR]:
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         return HttpResponseBadRequest(strip_tags(
             "Unrecognized rolename '{}'.".format(rolename)
         ))
@@ -2330,7 +2335,11 @@ def update_forum_role_membership(request, course_id):
     if rolename == FORUM_ROLE_ADMINISTRATOR and not has_instructor_access:
         return HttpResponseBadRequest("Operation requires instructor access.")
 
+<<<<<<< HEAD
     if rolename not in [FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_MODERATOR, FORUM_ROLE_COMMUNITY_TA]:
+=======
+    if not rolename in [FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_MODERATOR, FORUM_ROLE_COMMUNITY_TA, FORUM_ROLE_ETUTOR]:
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         return HttpResponseBadRequest(strip_tags(
             "Unrecognized rolename '{}'.".format(rolename)
         ))

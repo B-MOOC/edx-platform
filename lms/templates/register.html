@@ -88,7 +88,7 @@ import calendar
           removeClass('is-disabled').
           attr('aria-disabled', false).
           removeProp('disabled').
-          html("${_('Create My {platform_name} Account').format(platform_name=platform_name)}");
+          html("Activer mon inscription au sein de la communauté « Université TALAN »");
       }
       else {
         $submitButton.
@@ -102,9 +102,15 @@ import calendar
 
 <section class="introduction">
   <header>
-    <h1 class="title">
-      <span class="title-super">${_("Welcome!")}</span>
-      <span class="title-sub">${_("Register below to create your {platform_name} account").format(platform_name=platform_name)}</span>
+     <h1 class="title">
+      
+    % if course_id and enrollment_action:
+ 	 <span class="title-super" style="line-height:32px;">Pour participer à la formation,<br/> Veuillez
+ 	 vous connecter à l'université TALAN ! </span> 	 
+	% else:
+	 <span class="title-super">Bienvenue au sein de la communauté de l’Université TALAN !</span>
+    % endif
+    
     </h1>
   </header>
 </section>
@@ -128,6 +134,29 @@ import calendar
 
         % if not running_pipeline:
 
+<<<<<<< HEAD
+=======
+         % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         <div class="form-actions form-third-party-auth">
 
         % for enabled in provider.Registry.enabled():
@@ -137,6 +166,7 @@ import calendar
 
         </div>
 
+<<<<<<< HEAD
         <span class="deco-divider">
           ## Developers: this is a sentence fragment, which is usually frowned upon.  The design of the pags uses this fragment to provide an "else" clause underneath a number of choices.  It's OK to leave it.
           ## Translators: this is the last choice of a number of choices of how to log in to the site.
@@ -147,28 +177,85 @@ import calendar
           ${_('Create your own {platform_name} account below').format(platform_name=platform_name)}
           <span class="note">${_('Required fields are noted by <strong class="indicator">bold text and an asterisk (*)</strong>.')}</span>
         </p>
+=======
+        % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
 
         % else:
 
+        % if course_id and enrollment_action:
+ 	 
         <p class="instructions">
+<<<<<<< HEAD
           ## Translators: selected_provider is the name of an external, third-party user authentication service (like Google or LinkedIn).
           ${_("You've successfully signed in with {selected_provider}.").format(selected_provider='<strong>%s</strong>' % selected_provider)}<br />
           ${_("We just need a little more information before you start learning with {platform_name}.").format(platform_name=settings.PLATFORM_NAME)}
         </p>
+=======
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
+      </p>
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
         % endif
 
       % else:
 
-      <p class="instructions">
-        ${_("Please complete the following fields to register for an account. ")}<br />
-        ${_('Required fields are noted by <strong class="indicator">bold text and an asterisk (*)</strong>.')}
+      % if course_id and enrollment_action:
+ 	 
+        <p class="instructions">
+       Si vous êtes déjà inscrit à l'université Talan :  <a href="${reverse('signin_user')}">
+      ${_("Click here to log in.")}
+    </a>Ou remplissez le formulaire suivant :
+             </p>
+ 
+	% else:
+	
+        <p class="instructions">
+        Pour vous inscrire, veuillez compléter les champs suivants <b>(ceux qui sont marqués par un * sont obligatoires) </b>.
+      </p>
+
+    % endif
+      <hr/>
+      <p>
+      <i>Une fois la fiche contact remplie, vous recevrez un mail avec un lien d'activation. Cliquez sur ce lien pour compléter l'inscription. (si vous ne voyez pas le mail, vérifiez votre dossier de spam et marquez les mails provenant de universite.talan.fr comme n'étant pas du spam).</i>
       </p>
 
       % endif
 
-      <div class="group group-form group-form-requiredinformation">
+      <div class="group group-form group-form-requiredinformation hero">
         <h2 class="sr">${_('Required Information')}</h2>
 
         % if has_extauth_info is UNDEFINED:
@@ -245,7 +332,11 @@ import calendar
 
         % endif
       </div>
+		<br/><br/>
+      <div class="group group-form group-form-secondary group-form-personalinformation heroblock">
+        <h2>${_("Extra Personal Information")}</h2>
 
+<<<<<<< HEAD
       <div class="group group-form group-form-secondary group-form-personalinformation">
         <h2 class="sr">${_("Additional Personal Information")}</h2>
 
@@ -269,6 +360,12 @@ import calendar
             </div>
           </li>
           % endif
+=======
+         <ol class="list-input">
+        
+        
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
           % if settings.REGISTRATION_EXTRA_FIELDS['level_of_education'] != 'hidden':
           <li class="field-group field-education-level">
           <div class="field ${settings.REGISTRATION_EXTRA_FIELDS['level_of_education']} select" id="field-education-level">
@@ -308,6 +405,7 @@ import calendar
             </div>
             % endif
           </li>
+<<<<<<< HEAD
         </ol>
       </div>
 
@@ -317,36 +415,63 @@ import calendar
           <li class="field ${settings.REGISTRATION_EXTRA_FIELDS['mailing_address']} text" id="field-address-mailing">
             <label for="address-mailing">${_("Mailing Address")}</label>
             <textarea id="address-mailing" name="mailing_address" value="" ${'required aria-required="true"' if settings.REGISTRATION_EXTRA_FIELDS['mailing_address'] == 'required' else ''}></textarea>
+=======
+          
+           
+          <li class="field-group" id="field-city">
+           <div class="field field-city text" id="field-city">
+            <label for="city">Ville de résidence</label>
+            <input id="city" type="text" name="city" value="" placeholder="exemple : Paris" aria-describedby="city-tip" ${'required aria-required="true"' if settings.REGISTRATION_EXTRA_FIELDS['city'] == 'required' else ''} />
+           </div>
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
           </li>
-          % endif
+          
 
-          % if settings.REGISTRATION_EXTRA_FIELDS['goals'] != 'hidden':
-          <li class="field ${settings.REGISTRATION_EXTRA_FIELDS['goals']} text" id="field-goals">
-            <label for="goals">${_("Please share with us your reasons for registering with {platform_name}").format(platform_name=platform_name)}</label>
-            <textarea id="goals" name="goals" value="" ${'required aria-required="true"' if settings.REGISTRATION_EXTRA_FIELDS['goals'] == 'required' else ''}></textarea>
-          </li>
-          % endif
+
         </ol>
       </div>
 
-      <div class="group group-form group-form-accountacknowledgements">
+     <div class="group group-form group-form-accountacknowledgements">
         <h2 class="sr">${_("Account Acknowledgements")}</h2>
+        
+        <p>
+         <i>Pour activer votre inscription à l’université TALAN veuillez lire attentivement les documents suivants et confirmer votre acceptation en cochant les cases suivantes : </i>
+        </p>
 
-        <ol class="list-input">
+       <ol class="list-input">
           <li class="field-group">
 
-            % if has_extauth_info is UNDEFINED or ask_for_tos :
+			
+			% if has_extauth_info is UNDEFINED or ask_for_tos :
             <div class="field required checkbox" id="field-tos">
               <input id="tos-yes" type="checkbox" name="terms_of_service" value="true" required aria-required="true" />
-              <label for="tos-yes">${_('I agree to the {link_start}Terms of Service{link_end}').format(
+              <label for="tos-yes">J'accepte les ${_('{link_start}CGU du service{link_end}').format(
                 link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=marketing_link('TOS')),
                 link_end='</a>')}</label>
             </div>
             % endif
 
             % if settings.REGISTRATION_EXTRA_FIELDS['honor_code'] != 'hidden':
+<<<<<<< HEAD
             ## If the stanford theme isn't enabled, check if we have an Honor Code link in our marketing map
             % if not self.stanford_theme_enabled() and marketing_link('HONOR') and marketing_link('HONOR') != '#':
+=======
+            
+            <div class="field ${settings.REGISTRATION_EXTRA_FIELDS['honor_code']} checkbox" id="field-privacy" style='width:100%;'>
+              <input id="privacy-yes" type="checkbox" name="honor_privacy" value="true" />
+              <%
+                ## TODO: provide a better way to override these links
+                if self.stanford_theme_enabled():
+                  honor_code_path = marketing_link('TOS') + "#privacy"
+                else:
+                  honor_code_path = marketing_link('HONOR')
+              %>
+              <label for="privacy-yes"> J'accepte la ${_('{link_start}politique de confidentialit&eacute;{link_end}').format(
+                link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=honor_code_path),
+                link_end='</a>')}</label>
+            </div>
+            
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
             <div class="field ${settings.REGISTRATION_EXTRA_FIELDS['honor_code']} checkbox" id="field-honorcode">
               <input id="honorcode-yes" type="checkbox" name="honor_code" value="true" />
               <%
@@ -356,16 +481,26 @@ import calendar
                 else:
                   honor_code_path = marketing_link('HONOR')
               %>
-              <label for="honorcode-yes">${_('I agree to the {link_start}Honor Code{link_end}').format(
+              <label for="honorcode-yes">J'accepte le ${_('{link_start}code d\'honneur {link_end}').format(
                 link_start='<a href="{url}" class="new-vp" tabindex="-1">'.format(url=honor_code_path),
                 link_end='</a>')}</label>
             </div>
+            
+            
             % endif
+<<<<<<< HEAD
             % endif
+=======
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
           </li>
         </ol>
       </div>
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
       <div class="form-actions">
         <button name="submit" type="submit" id="submit" class="action action-primary action-update register-button">${_('Register')} <span class="orn-plus">+</span> ${_('Create My Account')}</button>
       </div>

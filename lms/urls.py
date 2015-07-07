@@ -68,6 +68,12 @@ urlpatterns = (
 
     url(r'^i18n/', include('django.conf.urls.i18n')),
 
+<<<<<<< HEAD
+=======
+    url(r'^embargo$', 'student.views.embargo', name="embargo"),
+    url(r'^messageenvoye$', 'student.views.contactform'),
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
     # Feedback Form endpoint
     url(r'^submit_feedback$', 'util.views.submit_feedback'),
 
@@ -699,6 +705,12 @@ if settings.FEATURES["CUSTOM_COURSES_EDX"]:
 if settings.FEATURES.get("ENABLE_LTI_PROVIDER"):
     urlpatterns += (
         url(r'^lti_provider/', include('lti_provider.urls')),
+    )
+
+# Login Ext-API.
+if settings.FEATURES.get('ENABLE_AUTH_EXT_API'):
+    urlpatterns += (
+        url(r'', include('auth_ext_api.urls')),
     )
 
 # Login Ext-API.

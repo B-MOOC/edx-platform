@@ -1,3 +1,7 @@
 <%! from django.utils.translation import ugettext as _ %>
 
+<<<<<<< HEAD
 ${_("Activate Your {platform_name} Account").format(platform_name=settings.PLATFORM_NAME)}
+=======
+${_("Activer votre compte universite Talan").format(platform_name=settings.PLATFORM_NAME)}
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4

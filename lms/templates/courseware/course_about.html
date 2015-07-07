@@ -171,6 +171,17 @@ from edxmako.shortcuts import marketing_link
               .format(course_name=course.display_number_with_default, price=course_price)}
           </a>
           <div id="register_error"></div>
+<<<<<<< HEAD
+=======
+        % elif is_course_full:
+          <span class="register disabled">
+            ${_("Course is full")}
+          </span>
+        % elif invitation_only and not can_enroll:
+          <span class="register disabled">${_("Enrollment in this course is by invitation only")}</span>
+        % elif not can_enroll:
+          <span class="register disabled">Les inscriptions sont fermées</span>
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         %else:
           <a href="#" class="register">
             ${_("Register for {course_name}").format(course_name=course.display_number_with_default) | h}
@@ -205,6 +216,7 @@ from edxmako.shortcuts import marketing_link
           <a class="instructor-info-action" href="${studio_url}">${_("View About Page in studio")}</a>
         </div>
       % endif
+<<<<<<< HEAD
 
       <nav aria-label="${_('Course About')}">
         <a href="#" class="active">${_("Overview")}</a>
@@ -215,6 +227,9 @@ from edxmako.shortcuts import marketing_link
       ##  <a href="#">${_("Reviews")}</a>
       </nav>
 
+=======
+      
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
       <div class="inner-wrapper">
         ${get_course_about_section(course, "overview")}
       </div>

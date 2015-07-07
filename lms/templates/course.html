@@ -5,7 +5,24 @@ from django.core.urlresolvers import reverse
 from courseware.courses import course_image_url, get_course_about_section
 %>
 <%page args="course" />
+<<<<<<< HEAD
 <article class="course" id="${course.id | h}" role="region" aria-label="${get_course_about_section(course, 'title')}">
+=======
+<article id="${course.id.to_deprecated_string()}" class="course">
+  %if course.is_newish:
+    <span class="status
+    %if course.id.to_deprecated_string() == "Talan/UT-Agile-003/individuelle":
+    	${_("individuelle")}
+    %endif
+    ">
+    %if course.id.to_deprecated_string() == "Talan/UT-Agile-003/individuelle":
+    	${_("Ouvert")}
+    %else: 	
+    	${_("Prochainement")}
+    %endif
+   	</span> 
+  %endif
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
   <a href="${reverse('about_course', args=[course.id.to_deprecated_string()])}">
     <header class="course-image">
       <div class="cover-image">

@@ -43,7 +43,11 @@ class CourseDetails(object):
         self.overview = ""  # html to render as the overview
         self.intro_video = None  # a video pointer
         self.effort = None  # int hours/week
+<<<<<<< HEAD
         self.license = "all-rights-reserved"  # default course license is all rights reserved
+=======
+        self.listemail = None  # list email SPOC
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         self.course_image_name = ""
         self.course_image_asset_path = ""  # URL of the course image
         self.pre_requisite_courses = []  # pre-requisite courses
@@ -82,6 +86,7 @@ class CourseDetails(object):
         course_details.pre_requisite_courses = descriptor.pre_requisite_courses
         course_details.course_image_name = descriptor.course_image
         course_details.course_image_asset_path = course_image_url(descriptor)
+<<<<<<< HEAD
         course_details.language = descriptor.language
         # Default course license is "All Rights Reserved"
         course_details.license = getattr(descriptor, "license", "all-rights-reserved")
@@ -94,6 +99,42 @@ class CourseDetails(object):
 
         raw_video = cls._fetch_about_attribute(course_key, 'video')
         if raw_video:
+=======
+
+        temploc = course_key.make_usage_key('about', 'syllabus')
+        try:
+            course_details.syllabus = modulestore().get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+
+        temploc = course_key.make_usage_key('about', 'short_description')
+        try:
+            course_details.short_description = modulestore().get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+
+        temploc = course_key.make_usage_key('about', 'overview')
+        try:
+            course_details.overview = modulestore().get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+
+        temploc = course_key.make_usage_key('about', 'effort')
+        try:
+            course_details.effort = modulestore().get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+           
+        temploc = course_key.make_usage_key('about', 'listemail')
+        try:
+            course_details.listemail = modulestore().get_item(temploc).data
+        except ItemNotFoundError:
+            pass
+
+        temploc = course_key.make_usage_key('about', 'video')
+        try:
+            raw_video = modulestore().get_item(temploc).data
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
             course_details.intro_video = CourseDetails.parse_video_tag(raw_video)
 
         return course_details
@@ -193,9 +234,14 @@ class CourseDetails(object):
 
         # NOTE: below auto writes to the db w/o verifying that any of the fields actually changed
         # to make faster, could compare against db or could have client send over a list of which fields changed.
+<<<<<<< HEAD
         for attribute in ABOUT_ATTRIBUTES:
             if attribute in jsondict:
                 cls.update_about_item(course_key, attribute, jsondict[attribute], descriptor, user)
+=======
+        for about_type in ['syllabus', 'overview', 'effort', 'listemail', 'short_description']:
+            cls.update_about_item(course_key, about_type, jsondict[about_type], descriptor, user)
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
         recomposed_video_tag = CourseDetails.recompose_video_tag(jsondict['intro_video'])
         cls.update_about_item(course_key, 'video', recomposed_video_tag, descriptor, user)

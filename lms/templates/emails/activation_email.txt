@@ -1,5 +1,9 @@
-<%namespace file="../main.html" import="stanford_theme_enabled" />
+<html>
+<head>
+</head>
+<body bgcolor="#CCCCCC">
 <%! from django.utils.translation import ugettext as _ %>
+<<<<<<< HEAD
 ${_("Thank you for signing up for {platform_name}.").format(platform_name=settings.PLATFORM_NAME)}
 
 ${_("Change your life and start learning today by activating your "
@@ -7,6 +11,18 @@ ${_("Change your life and start learning today by activating your "
     "paste it into your browser's address bar.").format(
       platform_name=settings.PLATFORM_NAME
     )}
+=======
+<table width="100%" border="0" cellspacing="0" cellpadding="0" align="center" bgcolor="#CCCCCC">
+  <tr>
+    <td><br/><table width="600" style="border:2px solid #000000" cellspacing="0" cellpadding="10" align="center" bgcolor="#FFFFFF">
+      <tr>
+        <td align="center">
+        <img src="https://d2185fk62ntas9.cloudfront.net/logo-universite-talan.jpg" alt="Université Talan" align="center"/>
+
+<p>Merci pour votre inscription sur université Talan. Pour activer <br/>
+votre compte, s'il vous plaît rendez-vous sur le lien suivant :</p>
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
 % if is_secure:
   https://${ site }/activate/${ key }
@@ -14,6 +30,7 @@ ${_("Change your life and start learning today by activating your "
   http://${ site }/activate/${ key }
 % endif
 
+<<<<<<< HEAD
 % if settings.FEATURES.get('IS_EDX_DOMAIN'):
 ${_("After you activate your account, you can sign up for "
     "and take any of the hundreds of courses {platform_name} offers."
@@ -52,3 +69,17 @@ ${_("If you didn't request this, you don't need to do anything; you won't "
       "{platform_name} website.").format(platform_name=settings.PLATFORM_NAME)}
 
 % endif
+=======
+<br/> <br/> 
+
+<i>Si vous n'avez pas demandé d'inscription à l'université Talan, vous n'avez pas besoin de faire quoi que ce soit.
+Vous ne receverez plus d'email de notre part. S'il vous plaît ne répondez pas à cet e-mail.
+si vous avez besoin d'aide, consultez la section d'aide de notre site.</i>
+       <br/> </td></tr>
+        </table><br/><br/></td>
+    
+  </tr>
+</table>
+</body>
+</html>
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4

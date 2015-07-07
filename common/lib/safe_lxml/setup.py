@@ -12,4 +12,8 @@ setup(
         "lxml",
         "defusedxml"
     ],
+<<<<<<< HEAD
 )
+=======
+)
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4

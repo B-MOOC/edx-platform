@@ -20,7 +20,11 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import password_reset_confirm
 from django.contrib import messages
 from django.core.context_processors import csrf
+<<<<<<< HEAD
 from django.core import mail
+=======
+from django.core.mail import send_mail, BadHeaderError, EmailMultiAlternatives
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 from django.core.urlresolvers import reverse
 from django.core.validators import validate_email, ValidationError
 from django.db import IntegrityError, transaction
@@ -34,6 +38,11 @@ from django.utils.translation import ugettext as _, get_language
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_GET
+<<<<<<< HEAD
+=======
+from django.utils.html import strip_tags
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.template.response import TemplateResponse
@@ -74,7 +83,11 @@ from xmodule.modulestore import ModuleStoreEnum
 
 from collections import namedtuple
 
+<<<<<<< HEAD
 from courseware.courses import get_courses, sort_by_announcement, sort_by_start_date  # pylint: disable=import-error
+=======
+from courseware.courses import get_courses, sort_by_announcement,get_course_about_section
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 from courseware.access import has_access
 
 from django_comment_common.models import Role
@@ -177,6 +190,41 @@ def index(request, extra_context=None, user=AnonymousUser()):
     return render_to_response('index.html', context)
 
 
+<<<<<<< HEAD
+=======
+def embargo(_request):
+    """
+    Render the embargo page.
+
+    Explains to the user why they are not able to access a particular embargoed course.
+    Tries to use the themed version, but fall back to the default if not found.
+    """
+    try:
+        if settings.FEATURES["USE_CUSTOM_THEME"]:
+            return render_to_response("static_templates/theme-embargo.html")
+    except TopLevelLookupException:
+        pass
+    return render_to_response("static_templates/embargo.html")
+
+def contactform(request):
+    """
+    Send email - contact form
+
+    """
+    subject = request.POST.get('name', '')
+    message = request.POST.get('message', '')
+    from_email = request.POST.get('email', '')
+    if subject and message and from_email:
+        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
+        return render_to_response("static_templates/merci.html")
+    else:
+        return HttpResponseRedirect('/about')
+
+def press(request):
+    return render_to_response('static_templates/press.html')
+
+
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 def process_survey_link(survey_link, user):
     """
     If {UNIQUE_ID} appears in the link, replace it with a unique id for the user.
@@ -861,6 +909,7 @@ def _credit_statuses(user, course_enrollment_pairs):
                     u"have been set when the user purchased credit in the course.",
                     user.id, course_key
                 )
+<<<<<<< HEAD
             else:
                 provider_info = provider_info_by_id.get(provider_id, {})
                 status["provider_name"] = provider_info.get("display_name")
@@ -869,6 +918,18 @@ def _credit_statuses(user, course_enrollment_pairs):
         statuses[course_key] = status
 
     return statuses
+=======
+            )
+            # Hack: since change_enrollment delivers its redirect_url in the content
+            # of its response, we check here that only the 200 codes with content
+            # will return redirect_urls.
+            if enrollment_response.content != '':
+                if (enrollment_response.status_code == 400):
+                    return ""
+                return enrollment_response.content
+        except Exception, e:
+            log.exception("Exception automatically enrolling after login: {0}".format(str(e)))
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
 
 @require_POST
@@ -937,9 +998,29 @@ def change_enrollment(request, check_access=True):
             )
             return HttpResponseBadRequest(_("Course id is invalid"))
 
+<<<<<<< HEAD
         # Record the user's email opt-in preference
         if settings.FEATURES.get('ENABLE_MKTG_EMAIL_OPT_IN'):
             _update_email_opt_in(request, course_id.org)
+=======
+        if not has_access(user, 'enroll', course):
+            return HttpResponseBadRequest(_("Enrollment is closed"))
+            
+        if not user.is_active:
+		     return HttpResponseBadRequest(_("Activer votre compte avant de vous inscrire."))
+
+        # see if we have already filled up all allowed enrollments
+        is_course_full = CourseEnrollment.is_course_full(course)
+
+        if is_course_full:
+            return HttpResponseBadRequest(_("Course is full"))
+            
+        # Check list email autorise a s'inscrire
+        is_course_listrequired = CourseEnrollment.is_course_listrequired(course,get_course_about_section(course,"listemail"),user.email)
+
+        if not is_course_listrequired:
+            return HttpResponseBadRequest(_("Bonjour, vos identifiants ne vous permettent pas de participer, il s'agit d'une formation priv&eacute;e. Veuillez vous inscrire &agrave; une autre session publique. Tr&egrave;s cordialement, l'&eacute;quipe &eacute;ditoriale."))
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
         available_modes = CourseMode.modes_for_course_dict(course_id)
 
@@ -1635,11 +1716,21 @@ def create_account_with_params(request, params):
             'key': registration.activation_key,
         }
 
+<<<<<<< HEAD
         # composes activation email
         subject = render_to_string('emails/activation_email_subject.txt', context)
         # Email subject *must not* contain newlines
         subject = ''.join(subject.splitlines())
         message = render_to_string('emails/activation_email.txt', context)
+=======
+    # composes activation email
+    subject = render_to_string('emails/activation_email_subject.txt', context)
+    # Email subject *must not* contain newlines
+    subject = ''.join(subject.splitlines())
+    message = render_to_string('emails/activation_email.txt', context)
+    html_content = message
+    text_content = strip_tags(html_content)
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
         from_address = microsite.get_value(
             'email_from_address',
@@ -1650,9 +1741,26 @@ def create_account_with_params(request, params):
                 dest_addr = settings.FEATURES['REROUTE_ACTIVATION_EMAIL']
                 message = ("Activation for %s (%s): %s\n" % (user, user.email, profile.name) +
                            '-' * 80 + '\n\n' + message)
+<<<<<<< HEAD
                 mail.send_mail(subject, message, from_address, [dest_addr], fail_silently=False)
+=======
+                # ----
+                # HTML activation message
+                # -----               
+                subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
+                msg = EmailMultiAlternatives(subject, text_content, from_email, [to])
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
             else:
-                user.email_user(subject, message, from_address)
+                # user.email_user(subject, message, from_address)
+                # ----
+                # HTML activation message
+                # -----               
+                # subject, from_email, to = 'Activer votre compte Universite Talan', from_address, dest_addr
+                msg = EmailMultiAlternatives(subject, text_content, from_address, [user.email])
+                msg.attach_alternative(html_content, "text/html")
+                msg.send()
         except Exception:  # pylint: disable=broad-except
             log.error(u'Unable to send activation email to user from "%s"', from_address, exc_info=True)
     else:

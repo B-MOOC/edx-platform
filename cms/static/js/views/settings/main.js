@@ -80,6 +80,8 @@ var DetailsView = ValidatingView.extend({
         else this.$el.find('.remove-course-introduction-video').hide();
 
         this.$el.find('#' + this.fieldToSelectorMap['effort']).val(this.model.get('effort'));
+        this.$el.find('#' + this.fieldToSelectorMap['listemail']).val(this.model.get('listemail'));
+        //this.$el.find('#email-list').val(this.model.get('listemail'));
 
         var imageURL = this.model.get('course_image_asset_path');
         this.$el.find('#course-image-url').val(imageURL);
@@ -112,6 +114,7 @@ var DetailsView = ValidatingView.extend({
         'overview' : 'course-overview',
         'short_description' : 'course-short-description',
         'intro_video' : 'course-introduction-video',
+        'listemail' : 'course-email-list',
         'effort' : "course-effort",
         'course_image_asset_path': 'course-image-url',
         'pre_requisite_courses': 'pre-requisite-course',
@@ -195,6 +198,7 @@ var DetailsView = ValidatingView.extend({
         case 'course-effort':
             this.setField(event);
             break;
+<<<<<<< HEAD
         case 'entrance-exam-enabled':
             if($(event.currentTarget).is(":checked")){
                 this.$('.div-grade-requirements').show();
@@ -212,6 +216,11 @@ var DetailsView = ValidatingView.extend({
                 this.setField(event);
             }
             break;
+=======
+        case 'course-email-list':
+        	this.setField(event);
+       		break;
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         case 'course-short-description':
             this.setField(event);
             break;

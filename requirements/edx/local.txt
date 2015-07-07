@@ -3,7 +3,10 @@
 -e common/lib/calc
 -e common/lib/capa
 -e common/lib/chem
+<<<<<<< HEAD
 -e common/lib/dogstats
+=======
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 -e common/lib/safe_lxml
 -e common/lib/sandbox-packages
 -e common/lib/symmath

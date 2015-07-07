@@ -61,6 +61,7 @@ def url_class(is_active):
             tab_is_active = (tab.tab_id == active_page) or (tab.tab_id == default_tab)
             tab_image = notification_image_for_tab(tab, user, course)
         %>
+<<<<<<< HEAD
           <li>
              <a href="${tab.link_func(course, reverse) | h}" class="${url_class(tab_is_active)}">
                  ${_(tab.name) | h}
@@ -74,6 +75,30 @@ def url_class(is_active):
                  %endif
              </a>
           </li>
+=======
+         % if course.id.to_deprecated_string() == "Talan/UT-Agile-003/individuelle" and tab.name == "Discussion":
+          
+         % else:
+         
+	        % if waffle.flag_is_active(request, 'visual_treatment'):
+	          <li class="${"prominent" if tab.name in ("Courseware", "Course Content") else ""}">
+	        % else:
+	          <li>
+	        % endif
+	             <a href="${tab.link_func(course, reverse) | h}" class="${url_class(tab_is_active)}">
+	                 ${_(tab.name) | h}
+	                 % if tab_is_active:
+	                   <span class="sr">, current location</span>
+	                 %endif
+	                 % if tab_image:
+	                   ## Translators: 'needs attention' is an alternative string for the
+	                   ## notification image that indicates the tab "needs attention".
+	                   <img src="${tab_image}" alt="${_('needs attention')}" />
+	                 %endif
+	             </a>
+	          </li>
+	       % endif
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
       % endfor
       <%block name="extratabs" />
     </ol>

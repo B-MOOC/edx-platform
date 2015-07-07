@@ -341,6 +341,7 @@ from student.helpers import (
           </div>
         %endif
 
+<<<<<<< HEAD
         % if is_course_blocked:
           <p id="block-course-msg" class="course-block">
             ${_("You can no longer access this course because payment has not yet been received. "
@@ -379,6 +380,36 @@ from student.helpers import (
         % endif
     </ul>
   </footer>
+=======
+	  % if user.username != "CompteBmooc":
+	      % if enrollment.mode != "verified":
+	        ## Translators: The course's name will be added to the end of this sentence.
+	        <a href="#unenroll-modal" class="unenroll" rel="leanModal" data-course-id="${course.id.to_deprecated_string()}" data-course-number="${course.number}" onclick="document.getElementById('track-info').innerHTML='${_("Are you sure you want to unregister from")}'; document.getElementById('refund-info').innerHTML=''">
+	          ${_('Unregister')}
+	        </a>
+	      % elif show_refund_option:
+	        ## Translators: The course's name will be added to the end of this sentence.
+	        <a href="#unenroll-modal" class="unenroll" rel="leanModal" data-course-id="${course.id.to_deprecated_string()}" data-course-number="${course.number}" onclick="document.getElementById('track-info').innerHTML='${_("Are you sure you want to unregister from the verified {cert_name_long} track of").format(cert_name_long=cert_name_long)}';
+	        document.getElementById('refund-info').innerHTML=gettext('You will be refunded the amount you paid.')">
+	          ${_('Unregister')}
+	        </a>
+	      % else:
+	        ## Translators: The course's name will be added to the end of this sentence.
+	        <a href="#unenroll-modal" class="unenroll" rel="leanModal" data-course-id="${course.id.to_deprecated_string()}" data-course-number="${course.number}" onclick="document.getElementById('track-info').innerHTML='${_("Are you sure you want to unregister from the verified {cert_name_long} track of").format(cert_name_long=cert_name_long)}';
+	        document.getElementById('refund-info').innerHTML=gettext('The refund deadline for this course has passed, so you will not receive a refund.')">
+	          ${_('Unregister')}
+	        </a>
+	      % endif
+      % endif
+% if user.username != "CompteBmooc":
+	% if show_email_settings:
+	        <a href="#email-settings-modal" class="email-settings" rel="leanModal" data-course-id="${course.id.to_deprecated_string()}" data-course-number="${course.number}" data-optout="${course.id.to_deprecated_string() in course_optouts}">${_('Email Settings')}</a>
+	% endif
+% endif
+
+
+  </section>
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 </article>
 </li>
 <script>

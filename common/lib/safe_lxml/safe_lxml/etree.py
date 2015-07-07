@@ -9,7 +9,10 @@ For processing xml always prefer this over using lxml.etree directly.
 
 from lxml.etree import *  # pylint: disable=wildcard-import, unused-wildcard-import
 from lxml.etree import XMLParser as _XMLParser
+<<<<<<< HEAD
 from lxml.etree import _Element, _ElementTree  # pylint: disable=unused-import, no-name-in-module
+=======
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
 # This should be imported after lxml.etree so that it overrides the following attributes.
 from defusedxml.lxml import parse, fromstring, XML
@@ -23,4 +26,8 @@ class XMLParser(_XMLParser):  # pylint: disable=function-redefined
     def __init__(self, *args, **kwargs):
         if "resolve_entities" not in kwargs:
             kwargs["resolve_entities"] = False
+<<<<<<< HEAD
         super(XMLParser, self).__init__(*args, **kwargs)
+=======
+        super(XMLParser, self).__init__(*args, **kwargs)
+>>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
