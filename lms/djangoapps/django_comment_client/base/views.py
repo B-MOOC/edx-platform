@@ -7,13 +7,9 @@ import urlparse
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core import exceptions
-<<<<<<< HEAD
-from django.http import Http404, HttpResponseBadRequest
-=======
 from django.core.files.storage import get_storage_class
 from django.core.mail import send_mail
-from django.http import Http404
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
+from django.http import Http404, HttpResponseBadRequest
 from django.utils.translation import ugettext as _
 from django.views.decorators import csrf
 from django.views.decorators.http import require_GET, require_POST
@@ -36,10 +32,7 @@ from django_comment_client.utils import (
     get_discussion_categories_ids,
     get_discussion_id_map,
 )
-<<<<<<< HEAD
-from django_comment_client.permissions import check_permissions_by_view, has_permission
 from eventtracking import tracker
-=======
 from django_comment_common.models import (
     Role,
     FORUM_ROLE_ADMINISTRATOR,
@@ -47,8 +40,7 @@ from django_comment_common.models import (
     FORUM_ROLE_COMMUNITY_TA,
     FORUM_ROLE_ETUTOR
 )
-from django_comment_client.permissions import check_permissions_by_view, cached_has_permission
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
+from django_comment_client.permissions import check_permissions_by_view, has_permission
 import lms.lib.comment_client as cc
 
 log = logging.getLogger(__name__)
@@ -223,7 +215,6 @@ def create_thread(request, course_id, commentable_id):
 
     event_data = get_thread_created_event_data(thread, follow)
     data = thread.to_dict()
-<<<<<<< HEAD
 
     # Calls to id map are expensive, but we need this more than once.
     # Prefetch it.
@@ -234,8 +225,6 @@ def create_thread(request, course_id, commentable_id):
     track_forum_event(request, THREAD_CREATED_EVENT_NAME,
                       course, thread, event_data, id_map=id_map)
 
-=======
-    add_courseware_context([data], course)
     
     try:
         role = Role.objects.get(name="E-tutor", course_id=course_id)
@@ -255,10 +244,7 @@ def create_thread(request, course_id, commentable_id):
         map(extract_etutors_info, etutors)       
     except Role.DoesNotExist:
         etutors = [] 
-    
-    
-    
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
+
     if request.is_ajax():
         return ajax_content_response(request, course_key, data)
     else:
@@ -332,35 +318,30 @@ def _create_comment(request, course_key, thread_id=None, parent_id=None):
         body=post["body"]
     )
     comment.save()
-<<<<<<< HEAD
 
     followed = post.get('auto_subscribe', 'false').lower() == 'true'
 
     if followed:
-=======
-        
-    try:
-        role = Role.objects.get(name="E-tutor", course_id=course_key)
-        etutors = role.users.all().order_by('username')      
-        user= request.user
-        """
-        Send Notify to the Etutors !
 
-        """
-        subject = "nouveau commentaire sur le forum"
-        message = "Bonjour,\n\n Il y a un nouveau commentaire sur Universite Talan.\n\n--------------------\n--------------------\n\n Auteur : "+ user.username + " \n Message : "+post["body"]
-        from_email = "edx@universite.talan.fr"
-        def extract_etutors_info(etutor):
-            if etutor.email != user.email:
-                send_mail("[UnivTalan] "+subject, message, from_email, [etutor.email])
-                   
-        map(extract_etutors_info, etutors)       
-    except Role.DoesNotExist:
-        etutors = [] 
-    
-    
-    if post.get('auto_subscribe', 'false').lower() == 'true':
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
+        
+        try:
+            role = Role.objects.get(name="E-tutor", course_id=course_key)
+            etutors = role.users.all().order_by('username')      
+            user= request.user
+            """
+            Send Notify to the Etutors !
+            
+            """
+            subject = "nouveau commentaire sur le forum"
+            message = "Bonjour,\n\n Il y a un nouveau commentaire sur Universite Talan.\n\n--------------------\n--------------------\n\n Auteur : "+ user.username + " \n Message : "+post["body"]
+            from_email = "edx@universite.talan.fr"
+            def extract_etutors_info(etutor):
+                if etutor.email != user.email:
+                    send_mail("[UnivTalan] "+subject, message, from_email, [etutor.email])
+                map(extract_etutors_info, etutors)       
+        except Role.DoesNotExist:
+            etutors = [] 
+
         user = cc.User.from_django_user(request.user)
         user.follow(comment.thread)
 

@@ -176,18 +176,11 @@ msgid ""
 msgstr ""
 "Project-Id-Version: edx-platform\n"
 "Report-Msgid-Bugs-To: openedx-translation@googlegroups.com\n"
-<<<<<<< HEAD
-"POT-Creation-Date: 2015-07-06 12:02+0000\n"
-"PO-Revision-Date: 2015-06-19 17:16+0000\n"
-"Last-Translator: Xavier Antoviaque <xavier@antoviaque.org>\n"
-"Language-Team: French (http://www.transifex.com/projects/p/edx-platform/language/fr/)\n"
-=======
 "POT-Creation-Date: 2014-07-11 16:04-0400\n"
 "PO-Revision-Date: 2014-07-21 20:12+0100\n"
 "Last-Translator: Nicolas Hanzel\n"
 "Language-Team: French (http://www.transifex.com/projects/p/edx-platform/"
 "language/fr/)\n"
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -202,25 +195,14 @@ msgstr ""
 #. #-#-#-#-#  mako.po (edx-platform)  #-#-#-#-#
 #. Translators: This is a forum post type
 #: cms/djangoapps/contentstore/views/component.py
-<<<<<<< HEAD
-#: lms/djangoapps/courseware/tabs.py
-#: lms/djangoapps/django_comment_client/forum/views.py
-#: lms/templates/discussion/_underscore_templates.html
-=======
 #: common/lib/xmodule/xmodule/tabs.py
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 msgid "Discussion"
 msgstr "Discussion"
 
 #: cms/djangoapps/contentstore/views/component.py
 #: lms/djangoapps/class_dashboard/dashboard_data.py
-<<<<<<< HEAD
-#: lms/templates/courseware/legacy_instructor_dashboard.html
-#: lms/templates/instructor/instructor_dashboard_2/instructor_analytics.html
-=======
 #: lms/templates/courseware/instructor_dashboard.html
 #: lms/templates/instructor/instructor_dashboard_2/analytics.html
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 msgid "Problem"
 msgstr "Exercice"
 
@@ -546,13 +528,9 @@ msgid ""
 "Your account has been disabled. If you believe this was done in error, "
 "please contact us at {support_email}"
 msgstr ""
-<<<<<<< HEAD
-"Votre compte a été désactivé. Si vous pensez que cela a été fait par erreur,"
-" veuillez nous contacter à {support_email}"
-=======
 "Votre compte a été désactivé. Si vous pensez que cela a été fait par erreur, "
 "veuillez nous contacter à {link_start}{support_email}{link_end}"
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
+
 
 #: common/djangoapps/student/middleware.py
 msgid "Disabled Account"
@@ -741,13 +719,8 @@ msgid ""
 "message. Please check your email for the activation instructions."
 msgstr ""
 "Ce compte n'a pas encore été activé. Nous vous avons envoyé un nouveau "
-<<<<<<< HEAD
-"message pour l'activer. Merci de vérifier votre boîte mail pour suivre les "
-"instructions d'activation."
-=======
 "message pour l'activer. Merci de vérifier votre courriel entrant pour suivre "
 "les instructions d'activation."
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
 #: common/djangoapps/student/views.py
 msgid "Please enter a username"
@@ -800,22 +773,6 @@ msgstr ""
 "circonstances du problème rencontré."
 
 #: common/djangoapps/student/views.py
-<<<<<<< HEAD
-msgid ""
-"You are re-using a password that you have used recently. You must have {num}"
-" distinct password before reusing a previous password."
-msgid_plural ""
-"You are re-using a password that you have used recently. You must have {num}"
-" distinct passwords before reusing a previous password."
-msgstr[0] ""
-"Vous tentez de réutiliser un mot de passe que vous avez utilisé récemment. "
-"Vous devez avoir utilisé {num} mot de passe distincts avant de pouvoir "
-"réutiliser un ancien mot de passe."
-msgstr[1] ""
-"Vous tentez de réutiliser un mot de passe que vous avez employé récemment. "
-"Vous devez définir un {num} mots de passe différent avant de pouvoir "
-"réutiliser un ancien mot de passe."
-=======
 msgid "A valid password is required"
 msgstr "Le mot de passe est invalide"
 
@@ -896,7 +853,6 @@ msgid_plural ""
 "distinct passwords before reusing a previous password."
 msgstr[0] ""
 msgstr[1] ""
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
 #: common/djangoapps/student/views.py
 msgid ""
@@ -954,30 +910,10 @@ msgid ""
 "\"Institution\" login providers."
 msgstr ""
 
-<<<<<<< HEAD
-#: common/djangoapps/third_party_auth/models.py
-msgid ""
-"If this option is enabled, users will not be asked to confirm their details "
-"(name, email, etc.) during the registration process. Only select this option"
-" for trusted providers that are known to provide accurate user information."
-msgstr ""
-
-#: common/djangoapps/third_party_auth/models.py
-msgid ""
-"If this option is selected, users will not be required to confirm their "
-"email, and their account will be activated immediately upon registration."
-msgstr ""
-
-#: common/djangoapps/third_party_auth/pipeline.py
-msgid ""
-"This account has not yet been activated. An activation email has been re-"
-"sent to {email_address}."
-msgstr ""
-=======
 #: common/djangoapps/student/views.py
 msgid "Invalid ID"
 msgstr "ID invalide"
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
+
 
 #. Translators: the translation for "LONG_DATE_FORMAT" must be a format
 #. string for formatting dates in a long form.  For example, the
@@ -1490,13 +1426,10 @@ msgid "Error running code."
 msgstr ""
 
 #: common/lib/capa/capa/inputtypes.py
-<<<<<<< HEAD
 msgid "Cannot connect to the queue"
 msgstr "Impossible de se connecter à la queue"
 
 #: common/lib/capa/capa/inputtypes.py
-=======
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 msgid "No formula specified."
 msgstr "Aucune formule indiquée"
 
@@ -1934,13 +1867,10 @@ msgid "Correct or Past Due"
 msgstr "Correct ou date d'échéance dépassée"
 
 #: common/lib/xmodule/xmodule/capa_base.py
-<<<<<<< HEAD
 msgid "Past Due"
 msgstr "Date de rendu dépassée"
 
 #: common/lib/xmodule/xmodule/capa_base.py
-=======
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 msgid "Never"
 msgstr "Jamais"
 

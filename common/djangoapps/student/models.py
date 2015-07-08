@@ -922,12 +922,10 @@ class CourseEnrollment(models.Model):
         Returns a boolean value regarding whether the user has access to enroll in the course. Returns False if the
         enrollment has been closed.
         """
-<<<<<<< HEAD
         # Disable the pylint error here, as per ormsbee. This local import was previously
         # in CourseEnrollment.enroll
-        from courseware.access import has_access  # pylint: disable=import-error
-        return not has_access(user, 'enroll', course)
-=======
+        #from courseware.access import has_access  # pylint: disable=import-error
+        #return not has_access(user, 'enroll', course)
         is_course_full = False
         if course.max_student_enrollments_allowed is not None:
             is_course_full = cls.num_enrolled_in(course.id) >= course.max_student_enrollments_allowed
@@ -956,7 +954,6 @@ class CourseEnrollment(models.Model):
             is_course_listrequired = True
         return is_course_listrequired
 
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
 
     def update_enrollment(self, mode=None, is_active=None, skip_refund=False):
         """

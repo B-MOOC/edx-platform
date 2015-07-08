@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 """
 Usage: manage.py {lms|cms} [--settings env] ...
-
 Run django management commands. Because edx-platform contains multiple django projects,
 the first argument specifies which project to run (cms [Studio] or lms [Learning Management System]).
-
 By default, those systems run in with a settings file appropriate for development. However,
 by passing the --settings flag, you can specify what environment specific settings file to use.
-
 Any arguments not understood by this manage.py will be passed to django-admin.py
 """
 

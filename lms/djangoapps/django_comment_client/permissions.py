@@ -14,17 +14,7 @@ from opaque_keys.edx.keys import CourseKey
 from django_comment_common.models import all_permissions_for_user_in_course
 
 
-<<<<<<< HEAD
 def has_permission(user, permission, course_id=None):
-=======
-def cached_has_permission(user, permission, course_id=None):
-    pprint.pprint(globals())
-    pprint.pprint(locals())
-    """
-    Call has_permission if it's not cached. A change in a user's role or
-    a role's permissions will only become effective after CACHE_LIFESPAN seconds.
-    """
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
     assert isinstance(course_id, (NoneType, CourseKey))
     request_cache_dict = RequestCache.get_request_cache().data
     cache_key = "django_comment_client.permissions.has_permission.all_permissions.{}.{}".format(

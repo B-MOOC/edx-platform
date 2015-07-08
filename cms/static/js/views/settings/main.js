@@ -198,8 +198,7 @@ var DetailsView = ValidatingView.extend({
         case 'course-effort':
             this.setField(event);
             break;
-<<<<<<< HEAD
-        case 'entrance-exam-enabled':
+case 'entrance-exam-enabled':
             if($(event.currentTarget).is(":checked")){
                 this.$('.div-grade-requirements').show();
             }else{
@@ -216,11 +215,9 @@ var DetailsView = ValidatingView.extend({
                 this.setField(event);
             }
             break;
-=======
         case 'course-email-list':
         	this.setField(event);
        		break;
->>>>>>> fa0bd35cc1c2ef00890f1bba3b8be2eeb72422b4
         case 'course-short-description':
             this.setField(event);
             break;
