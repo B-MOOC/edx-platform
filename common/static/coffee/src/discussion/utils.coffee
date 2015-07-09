@@ -37,7 +37,7 @@ class @DiscussionUtil
 
   @isTA: (user_id) ->
     user_id ?= @user?.id
-    ta = _.union(@roleIds['E-tutor'])
+    ta = _.union(@roleIds['Community TA'])
     _.include(ta, parseInt(user_id))
 
   @isPrivilegedUser: (user_id) ->

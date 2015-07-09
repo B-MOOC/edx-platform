@@ -23,7 +23,6 @@ def run():
     """
     Executed during django startup
     """
-
     django_utils_translation.patch()
 
     autostartup()

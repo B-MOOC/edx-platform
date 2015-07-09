@@ -35,7 +35,6 @@ if Backbone?
       body.html DiscussionUtil.postMathJaxProcessor DiscussionUtil.markdownWithHighlight body.text()
       if MathJax?
         MathJax.Hub.Queue ["Typeset", MathJax.Hub, body[0]]
-        
 
     _delete: (event) =>
         @trigger "comment:_delete", event

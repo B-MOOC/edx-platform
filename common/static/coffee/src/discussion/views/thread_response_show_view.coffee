@@ -27,7 +27,6 @@ if Backbone?
     convertMath: ->
       element = @$(".response-body")
       element.html DiscussionUtil.postMathJaxProcessor DiscussionUtil.markdownWithHighlight element.text()
-
       if MathJax?
         MathJax.Hub.Queue ["Typeset", MathJax.Hub, element[0]]
 
