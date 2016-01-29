@@ -514,7 +514,10 @@ def iterate_grades_for(course_id, students):
         make up the final grade. (For display)
     - raw_scores: contains scores for every graded module
     """
-    course = courses.get_course_by_id(course_id)
+    if isinstance(course_or_id, (basestring, CourseKey)):
+        course = courses.get_course_by_id(course_or_id)
+    else:
+        course = course_or_id
 
     # We make a fake request because grading code expects to be able to look at
     # the request. We have to attach the correct user to the request before

@@ -580,7 +580,7 @@ class DraftModuleStore(MongoModuleStore):
                 _internal(next_tier)
 
         _internal([root_usage.to_deprecated_son() for root_usage in root_usages])
-        self.collection.remove({'_id': {'$in': to_be_deleted}}, safe=self.collection.safe)
+        self.collection.remove({'_id': {'$in': to_be_deleted}})
 
     def has_changes(self, location):
         """

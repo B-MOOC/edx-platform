@@ -373,10 +373,12 @@ class MongoModuleStore(ModuleStoreWriteBase):
             if user is not None and password is not None:
                 self.database.authenticate(user, password)
 
+        
         do_connection(**doc_store_config)
+        logging.warning(self.collection)
 
         # Force mongo to report errors, at the expense of performance
-        self.collection.write_concern = {'w': 1}
+        # self.collection.write_concern = {'w': 1}
 
         if default_class is not None:
             module_path, _, class_name = default_class.rpartition('.')
@@ -721,10 +723,13 @@ class MongoModuleStore(ModuleStoreWriteBase):
         '''Look for a given location in the collection. If the item is not present, raise
         ItemNotFoundError.
         '''
+        
         assert isinstance(location, UsageKey)
         item = self.collection.find_one(
             {'_id': location.to_deprecated_son()}
         )
+        #logging.warning(location.to_deprecated_son())
+        #logging.warning(self.collection)
         if item is None:
             raise ItemNotFoundError(location)
         return item
@@ -895,7 +900,10 @@ class MongoModuleStore(ModuleStoreWriteBase):
             ('_id.course', re.compile(u'^{}$'.format(course_id.course), re.IGNORECASE)),
             ('_id.category', 'course'),
         ])
-        courses = self.collection.find(course_search_location, fields=('_id'))
+        #logging.warning(course_search_location)
+        courses = self.collection.find(course_search_location, {"_id": True})
+        #courses = self.collection.find(course_search_location, fields=('_id'))
+        
         if courses.count() > 0:
             raise InvalidLocationError(
                 "There are already courses with the given org and course id: {}".format([
@@ -994,15 +1002,12 @@ class MongoModuleStore(ModuleStoreWriteBase):
             {'_id': location.to_deprecated_son()},
             {'$set': update},
             multi=False,
-            upsert=True,
-            # Must include this to avoid the django debug toolbar (which defines the deprecated "safe=False")
-            # from overriding our default value set in the init method.
-            safe=self.collection.safe
+            upsert=True
         )
         if result['n'] == 0:
             raise ItemNotFoundError(location)
 
-    def _update_ancestors(self, location, update):
+    def _update_ancestors(self, location, update): 
         """
         Recursively applies update to all the ancestors of location
         """

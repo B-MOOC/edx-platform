@@ -156,7 +156,7 @@ def contactform(request):
     message = request.POST.get('message', '')
     from_email = request.POST.get('email', '')
     if subject and message and from_email:
-        send_mail("talan universite message de : "+subject, message, from_email, ['nicolas.hanzel@b-mooc.com'])
+        send_mail("talan universite message de : "+subject, message, from_email, ['sami.mebazaa@talan.fr'])
         return render_to_response("static_templates/merci.html")
     else:
         return HttpResponseRedirect('/about')

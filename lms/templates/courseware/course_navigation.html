@@ -30,7 +30,9 @@ def url_class(is_active):
             tab_image = notification_image_for_tab(tab, user, course)
         %>
          % if course.id.to_deprecated_string() == "Talan/UT-Agile-003/individuelle" and tab.name == "Discussion":
-          
+         
+         % elif course.id.to_deprecated_string() == "TalanTunisieConsulting/TTC-SMI-001/2015-Q4" and tab.name == "Discussion":
+         
          % else:
          
 	        % if waffle.flag_is_active(request, 'visual_treatment'):

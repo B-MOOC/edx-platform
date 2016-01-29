@@ -309,7 +309,7 @@ class S3ReportStore(ReportStore):
         csv.writer(gzip_file).writerows(rows)
         gzip_file.close()
 
-        self.store(course_id, filename, output_buffer)
+        self.store(course_id, filename, output_buffer) 
 
     def links_for(self, course_id):
         """

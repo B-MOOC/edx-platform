@@ -15,6 +15,7 @@ from xmodule.modulestore.django import modulestore
 from instructor_task.models import InstructorTask
 from instructor_task.tasks import (rescore_problem,
                                    reset_problem_attempts,
+                                   calculate_problem_grade_report,
                                    delete_problem_state,
                                    send_bulk_course_email,
                                    calculate_grades_csv)
@@ -217,4 +218,16 @@ def submit_calculate_grades_csv(request, course_key):
     task_input = {}
     task_key = ""
 
+    return submit_task(request, task_type, task_class, course_key, task_input, task_key)
+
+
+def submit_problem_grade_report(request, course_key):
+    """
+    Submits a task to generate a CSV grade report containing problem
+    values.
+    """
+    task_type = 'grade_problems'
+    task_class = calculate_problem_grade_report
+    task_input = {}
+    task_key = ""
     return submit_task(request, task_type, task_class, course_key, task_input, task_key)

@@ -8,6 +8,7 @@ import urllib
 from datetime import datetime
 from time import time
 
+from collections import OrderedDict
 from celery import Task, current_task
 from celery.utils.log import get_task_logger
 from celery.states import SUCCESS, FAILURE
@@ -470,6 +471,123 @@ def delete_problem_module_state(xmodule_instance_args, _module_descriptor, stude
 
 
 def push_grades_to_s3(_xmodule_instance_args, _entry_id, course_id, _task_input, action_name):
+    
+    """
+    For a given `course_id`, generate a grades CSV file for all students that
+    are enrolled, and store using a `ReportStore`. Once created, the files can
+    be accessed by instantiating another `ReportStore` (via
+    `ReportStore.from_config()`) and calling `link_for()` on it. Writes are
+    buffered, so we'll never write part of a CSV file to S3 -- i.e. any files
+    that are visible in ReportStore will be complete ones.
+
+    As we start to add more CSV downloads, it will probably be worthwhile to
+    make a more general CSVDoc class instead of building out the rows like we
+    do here.
+    """
+    start_time = datetime.now(UTC)
+    status_interval = 100
+
+    enrolled_students = CourseEnrollment.users_enrolled_in(course_id)
+    num_total = enrolled_students.count()
+    num_attempted = 0
+    num_succeeded = 0
+    num_failed = 0
+    curr_step = "Calculating Grades"
+
+    def update_task_progress():
+        """Return a dict containing info about current task"""
+        current_time = datetime.now(UTC)
+        progress = {
+            'action_name': action_name,
+            'attempted': num_attempted,
+            'succeeded': num_succeeded,
+            'failed': num_failed,
+            'total': num_total,
+            'duration_ms': int((current_time - start_time).total_seconds() * 1000),
+            'step': curr_step,
+        }
+        _get_current_task().update_state(state=PROGRESS, meta=progress)
+
+        return progress
+    
+    # This struct encapsulates both the display names of each static item in the
+    # header row as values as well as the django User field names of those items
+    # as the keys.  It is structured in this way to keep the values related.
+    header_row = OrderedDict([('id', 'Student ID'), ('email', 'Email'), ('username', 'Username')])
+
+    try:
+        course_structure = CourseStructure.objects.get(course_id=course_id)
+        blocks = course_structure.ordered_blocks
+        problems = _order_problems(blocks)
+    except CourseStructure.DoesNotExist:
+        return update_task_progress();
+ 
+    # Just generate the static fields for now.
+    rows = [list(header_row.values()) + ['Final Grade'] + list(chain.from_iterable(problems.values()))]
+    error_rows = [list(header_row.values()) + ['error_msg']]
+    current_step = {'step': 'Calculating Grades'}
+
+    for student, gradeset, err_msg in iterate_grades_for(course_id, enrolled_students):
+        student_fields = [getattr(student, field_name) for field_name in header_row]
+        update_task_progress()
+
+        if 'percent' not in gradeset or 'raw_scores' not in gradeset:
+            # There was an error grading this student.
+            # Generally there will be a non-empty err_msg, but that is not always the case.
+            if not err_msg:
+                err_msg = u"Unknown error"
+            error_rows.append(student_fields + [err_msg])
+            update_task_progress()
+            continue
+
+        final_grade = gradeset['percent']
+        # Only consider graded problems
+        problem_scores = {unicode(score.module_id): score for score in gradeset['raw_scores'] if score.graded}
+        earned_possible_values = list()
+        for problem_id in problems:
+            try:
+                problem_score = problem_scores[problem_id]
+                earned_possible_values.append([problem_score.earned, problem_score.possible])
+            except KeyError:
+                # The student has not been graded on this problem.  For example,
+                # iterate_grades_for skips problems that students have never
+                # seen in order to speed up report generation.  It could also be
+                # the case that the student does not have access to it (e.g. A/B
+                # test or cohorted courseware).
+                earned_possible_values.append(['N/A', 'N/A'])
+        rows.append(student_fields + [final_grade] + list(chain.from_iterable(earned_possible_values)))
+
+        update_task_progress()
+
+
+
+  
+    # Generate parts of the file name
+    timestamp_str = start_time.strftime("%Y-%m-%d-%H%M")
+    course_id_prefix = urllib.quote(course_id.to_deprecated_string().replace("/", "_"))
+
+    # Perform the actual upload
+    report_store = ReportStore.from_config()
+    report_store.store_rows(
+        course_id,
+        u"{}_grade_problem_{}.csv".format(course_id_prefix, timestamp_str),
+        rows
+    )
+
+    # If there are any error rows (don't count the header), write them out as well
+    if len(err_rows) > 1:
+        report_store.store_rows(
+            course_id,
+            u"{}_grade_problem_{}_err.csv".format(course_id_prefix, timestamp_str),
+            err_rows
+        )
+
+    # One last update before we close out...
+    return update_task_progress()
+
+
+
+def upload_problem_grade_report(_xmodule_instance_args, _entry_id, course_id, _task_input, action_name):
     """
     For a given `course_id`, generate a grades CSV file for all students that
     are enrolled, and store using a `ReportStore`. Once created, the files can
@@ -571,3 +689,79 @@ def push_grades_to_s3(_xmodule_instance_args, _entry_id, course_id, _task_input,
 
     # One last update before we close out...
     return update_task_progress()
+
+# return task_progress.update_task_state(extra_meta={'step': 'Uploading CSV'})
+
+def upload_csv_to_report_store(rows, csv_name, course_id, timestamp, config_name='GRADES_DOWNLOAD'):
+    """
+    Upload data as a CSV using ReportStore. 
+
+    Arguments:
+        rows: CSV data in the following format (first column may be a
+            header):
+            [
+                [row1_colum1, row1_colum2, ...],
+                ...
+            ]
+        csv_name: Name of the resulting CSV
+        course_id: ID of the course
+    """
+    timestamp_str_over = start_time.strftime("%Y-%m-%d-%H%M")
+    course_id_prefix = urllib.quote(course_id.to_deprecated_string().replace("/", "_"))
+    report_store = ReportStore.from_config()
+    report_store.store_rows(
+        course_id,
+        u"{course_prefix}_{csv_name}_{timestamp_str}.csv".format(
+            course_prefix=course_id_prefix,
+            csv_name=csv_name,
+            timestamp_str=timestamp_str_over
+        ),
+        rows
+    )
+    # tracker.emit(REPORT_REQUESTED_EVENT_NAME, {"report_type": csv_name, })
+  
+
+
+class TaskProgress(object):
+    """
+    Encapsulates the current task's progress by keeping track of
+    'attempted', 'succeeded', 'skipped', 'failed', 'total',
+    'action_name', and 'duration_ms' values.
+    """
+    def __init__(self, action_name, total, start_time):
+        self.action_name = action_name
+        self.total = total
+        self.start_time = start_time
+        self.attempted = 0
+        self.succeeded = 0
+        self.skipped = 0
+        self.failed = 0
+
+    def update_task_state(self, extra_meta=None):
+        """
+        Update the current celery task's state to the progress state
+        specified by the current object.  Returns the progress
+        dictionary for use by `run_main_task` and
+        `BaseInstructorTask.on_success`.
+
+        Arguments:
+            extra_meta (dict): Extra metadata to pass to `update_state`
+
+        Returns:
+            dict: The current task's progress dict
+        """
+        progress_dict = {
+            'action_name': self.action_name,
+            'attempted': self.attempted,
+            'succeeded': self.succeeded,
+            'skipped': self.skipped,
+            'failed': self.failed,
+            'total': self.total,
+            'duration_ms': int((time() - self.start_time) * 1000),
+        }
+        if extra_meta is not None:
+            progress_dict.update(extra_meta)
+        _get_current_task().update_state(state=PROGRESS, meta=progress_dict)
+        return progress_dict
+
+

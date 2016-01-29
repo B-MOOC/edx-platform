@@ -247,7 +247,8 @@ def _section_data_download(course_key, access):
         'get_anon_ids_url': reverse('get_anon_ids', kwargs={'course_id': course_key.to_deprecated_string()}),
         'list_instructor_tasks_url': reverse('list_instructor_tasks', kwargs={'course_id': course_key.to_deprecated_string()}),
         'list_report_downloads_url': reverse('list_report_downloads', kwargs={'course_id': course_key.to_deprecated_string()}),
-        'calculate_grades_csv_url': reverse('calculate_grades_csv', kwargs={'course_id': course_key.to_deprecated_string()}),
+        'calculate_grades_csv_url': reverse('calculate_grades_csv', kwargs={'course_id': course_key.to_deprecated_string()}),        
+        'problem_grade_report_url': reverse('problem_grade_report', kwargs={'course_id': course_key.to_deprecated_string()}),
     }
     return section_data
 

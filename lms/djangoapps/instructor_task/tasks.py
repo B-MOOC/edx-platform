@@ -28,6 +28,7 @@ from instructor_task.tasks_helper import (
     BaseInstructorTask,
     perform_module_state_update,
     rescore_problem_module_state,
+    upload_problem_grade_report,
     reset_attempts_module_state,
     delete_problem_module_state,
     push_grades_to_s3,
@@ -138,4 +139,16 @@ def calculate_grades_csv(entry_id, xmodule_instance_args):
     """
     action_name = ugettext_noop('graded')
     task_fn = partial(push_grades_to_s3, xmodule_instance_args)
+    return run_main_task(entry_id, task_fn, action_name)
+
+
+@task(base=BaseInstructorTask, routing_key=settings.GRADES_DOWNLOAD_ROUTING_KEY)  # pylint: disable=not-callable
+def calculate_problem_grade_report(entry_id, xmodule_instance_args):
+    """
+    Generate a CSV for a course containing all students' problem
+    grades and push the results to an S3 bucket for download.
+    """
+    # Translators: This is a past-tense phrase that is inserted into task progress messages as {action}.
+    action_name = ugettext_noop('problem distribution graded')
+    task_fn = partial(upload_problem_grade_report, xmodule_instance_args)
     return run_main_task(entry_id, task_fn, action_name)
